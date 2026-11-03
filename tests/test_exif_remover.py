@@ -117,7 +117,7 @@ class CleanTests(unittest.TestCase):
         insert_after_ihdr(f, png_chunk(b"tEXt", b"Author\x00Bob"))
         with open(self.p("notes.txt"), "w") as fh:
             fh.write("ignored")
-        self.assertEqual(er.main([self.d]), 0)
+        self.assertEqual(er.main(["--no-backup", self.d]), 0)
         self.assertEqual(er.png_extra_chunks(f), [])
         broken = self.p("broken.png")
         with open(broken, "wb") as fh:
@@ -125,9 +125,43 @@ class CleanTests(unittest.TestCase):
         self.assertEqual(er.main([broken]), 1)
         self.assertEqual(Path(broken).read_bytes(), b"not a png")
 
+    def make_tagged_png(self, rel):
+        f = self.p(rel)
+        os.makedirs(os.path.dirname(f), exist_ok=True)
+        sh("ffmpeg", "-v", "error", "-f", "lavfi", "-i", "color=blue:s=16x16", "-frames:v", "1", f)
+        insert_after_ihdr(f, png_chunk(b"tEXt", b"Author\x00Bob"))
+        return f
+
+    def test_auto_backup_of_folder(self):
+        f = self.make_tagged_png("in/sub/x.png")
+        tagged = Path(f).read_bytes()
+        today = er.date.today().isoformat()
+        self.assertEqual(er.main([self.p("in")]), 0)
+        bak = self.p(f"in_backup-{today}/sub/x.png")
+        self.assertEqual(Path(bak).read_bytes(), tagged)  # backup holds the original
+        self.assertEqual(er.png_extra_chunks(f), [])
+        # second run: new -2 backup, and an old backup inside the folder is never cleaned
+        inner = self.make_tagged_png(f"in/old_backup-{today}/y.png")
+        self.assertEqual(er.main([self.p("in")]), 0)
+        self.assertTrue(os.path.isfile(self.p(f"in_backup-{today}-2/sub/x.png")))
+        self.assertTrue(er.png_extra_chunks(inner))
+
+    def test_no_backup_flag(self):
+        self.make_tagged_png("in/x.png")
+        self.assertEqual(er.main(["--no-backup", self.p("in")]), 0)
+        self.assertEqual(sorted(os.listdir(self.d)), ["in"])
+
+    def test_backup_count_mismatch_aborts_untouched(self):
+        f = self.make_tagged_png("in/x.png")
+        tagged = Path(f).read_bytes()
+        with mock.patch.object(er, "count_files", side_effect=[1, 2]):
+            self.assertEqual(er.main([self.p("in")]), 2)
+        self.assertEqual(Path(f).read_bytes(), tagged)
+
     def test_windows_path(self):
         self.assertEqual(er.to_posix(r"C:\Users\me\a b.png"), "/mnt/c/Users/me/a b.png")
         self.assertEqual(er.to_posix("/tmp/x"), "/tmp/x")
+        self.assertEqual(er.to_windows("/mnt/c/Users/me/a_backup-2026-11-03"), r"C:\Users\me\a_backup-2026-11-03")
 
 
 if __name__ == "__main__":

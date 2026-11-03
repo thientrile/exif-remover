@@ -13,6 +13,7 @@ import struct
 import subprocess
 import sys
 import uuid
+from datetime import date
 
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif", ".tif", ".tiff"}
 VIDEO_EXT = {".mp4", ".mov", ".m4v"}
@@ -42,6 +43,33 @@ def to_posix(path):
     if m:
         return "/mnt/" + m.group(1).lower() + "/" + m.group(2).replace("\\", "/")
     return path
+
+
+def to_windows(path):
+    """/mnt/c/Users/x -> C:\\Users\\x for Explorer; other paths unchanged."""
+    m = re.match(r"^/mnt/([a-z])(/.*)?$", path)
+    return m.group(1).upper() + ":" + (m.group(2) or "/").replace("/", "\\") if m else path
+
+
+BACKUP_DIR = re.compile(r"_backup-\d{4}-\d{2}-\d{2}(-\d+)?$")
+
+
+def count_files(d):
+    return sum(len(names) for _, _, names in os.walk(d))
+
+
+def backup_dir(src):
+    """cp -a src to a sibling <src>_backup-YYYY-MM-DD[-N]; raise if file counts differ."""
+    src = os.path.normpath(os.path.realpath(src))
+    base = f"{src}_backup-{date.today().isoformat()}"
+    dst, n = base, 2
+    while os.path.exists(dst):
+        dst, n = f"{base}-{n}", n + 1
+    run(["cp", "-a", src, dst])
+    got, want = count_files(dst), count_files(src)
+    if got != want:
+        raise RuntimeError(f"backup {dst} has {got} files, source has {want}")
+    return dst
 
 
 def run(cmd):
@@ -158,7 +186,7 @@ def collect(args):
         p = to_posix(a)
         if os.path.isdir(p):
             for root, dirs, names in os.walk(p):
-                dirs.sort()
+                dirs[:] = sorted(x for x in dirs if not BACKUP_DIR.search(x))
                 for n in sorted(names):
                     if os.path.splitext(n)[1].lower() in SUPPORTED and ".exifclean-" not in n:
                         files.append(os.path.join(root, n))
@@ -172,11 +200,24 @@ def collect(args):
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     if not argv or argv[0] in ("-h", "--help"):
-        print("usage: exif_remover.py FILE_OR_DIR...   (cleans in place, recursive)")
+        print("usage: exif-remover [--no-backup] FILE_OR_DIR...\n"
+              "  cleans in place, recursive; each folder is first copied to <folder>_backup-YYYY-MM-DD")
         return 0 if argv else 2
+    no_backup = "--no-backup" in argv
+    argv = [a for a in argv if a != "--no-backup"]
     for tool in ("exiftool", "ffmpeg", "qpdf"):
         if not shutil.which(tool):
             print(f"missing tool: {tool}", file=sys.stderr)
+            return 2
+    backups = []
+    if not no_backup:  # shortcut: single-file inputs get no backup, only folders do
+        try:
+            for a in argv:
+                if os.path.isdir(to_posix(a)):
+                    backups.append(backup_dir(to_posix(a)))
+                    print(f"BACKUP {to_windows(backups[-1])}  ({count_files(backups[-1])} files)")
+        except Exception as e:
+            print(f"FAILED: backup failed, nothing was cleaned: {e}", file=sys.stderr)
             return 2
     files, skipped = collect(argv)
     for s in skipped:
@@ -190,8 +231,10 @@ def main(argv=None):
         except Exception as e:
             failed += 1
             print(f"FAIL   {f}: {e}", file=sys.stderr)
-    print(f"\n{ok} cleaned, {failed} failed, {len(skipped)} skipped; metadata tags {tb} -> {ta} "
-          f"(remaining tags are structural: size, codec, page count)")
+    print(f"\nmetadata tags {tb} -> {ta} (remaining tags are structural: size, codec, page count)")
+    where = "; ".join(to_windows(b) for b in backups) or "none"
+    status = "FAILED" if failed or skipped else "OK"
+    print(f"{status}: {ok} cleaned, {failed} failed, {len(skipped)} skipped. Backup: {where}")
     return 1 if failed or skipped else 0
 
 
