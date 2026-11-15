@@ -34,7 +34,8 @@ def work(args, q):
     q.put(code)
 
 
-def app():
+def app(initial=(), on_done=None):
+    """initial: paths to pre-fill; on_done(root): if given, Run starts at once and this is called when it ends."""
     root = tk.Tk()
     root.title("Exif Remover")
     root.minsize(680, 460)
@@ -89,6 +90,8 @@ def app():
                 ok = item == 0
                 status.configure(text="OK: all files cleaned and verified" if ok else "FAILED: see the log",
                                  fg="dark green" if ok else "red")
+                if on_done:
+                    on_done(root)
                 return
             write(item)
         root.after(100, poll)
@@ -108,6 +111,9 @@ def app():
         root.after(100, poll)
 
     run_btn.configure(command=start)
+    add(initial)
+    if on_done:
+        root.after(300, start)
     root.mainloop()
 
 

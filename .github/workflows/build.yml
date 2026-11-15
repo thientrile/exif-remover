@@ -33,6 +33,17 @@ jobs:
       - name: Unit tests (Windows, bundled tools)
         run: python -m unittest discover -s tests -v
 
+      - name: GUI screenshot (demo folder C:\demo\photos)
+        continue-on-error: true
+        timeout-minutes: 3
+        run: python scripts/screenshot.py screenshot.png
+
+      - uses: actions/upload-artifact@v4
+        continue-on-error: true
+        with:
+          name: screenshot
+          path: screenshot.png
+
       - name: Package (PyInstaller onedir)
         run: |
           pip install pyinstaller==6.22.3
