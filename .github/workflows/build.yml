@@ -22,9 +22,12 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Version
+      - name: Version (single source exif_remover.__version__)
         run: |
-          $v = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME.TrimStart('v') } else { '0.0.0' }
+          $v = python -c "import exif_remover; print(exif_remover.__version__)"
+          if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne "v$v") {
+            throw "tag $env:GITHUB_REF_NAME does not match __version__ $v"
+          }
           "VERSION=$v" >> $env:GITHUB_ENV
 
       - name: Fetch bundled tools (pinned, SHA256-checked)
@@ -33,30 +36,40 @@ jobs:
       - name: Unit tests (Windows, bundled tools)
         run: python -m unittest discover -s tests -v
 
-      - name: GUI screenshot (demo folder C:\demo\photos)
+      - name: Install GUI build deps
+        run: pip install -r requirements-gui.txt
+
+      - name: GUI screenshots (demo folder C:\demo\photos)
         continue-on-error: true
-        timeout-minutes: 3
-        run: python scripts/screenshot.py screenshot.png
+        timeout-minutes: 4
+        run: |
+          New-Item -ItemType Directory shots | Out-Null
+          python scripts/screenshot.py shots
 
       - uses: actions/upload-artifact@v4
         continue-on-error: true
         with:
-          name: screenshot
-          path: screenshot.png
+          name: screenshots
+          path: shots/*.png
 
       - name: Package (PyInstaller onedir)
-        run: |
-          pip install pyinstaller==6.22.3
-          pyinstaller --noconfirm --onedir --windowed --name ExifRemover --add-data "tools;tools" exif_remover_gui.py
+        run: >
+          pyinstaller --noconfirm --onedir --windowed --name ExifRemover --icon assets/icon.ico
+          --add-data "tools;tools" --add-data "assets;assets"
+          --collect-data customtkinter --collect-all tkinterdnd2 exif_remover_gui.py
 
-      - name: Installer (Inno Setup)
+      - name: Installer (Inno Setup) and SHA256SUMS.txt
         run: |
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           if (!(Test-Path $iscc)) { choco install innosetup -y --no-progress }
           & $iscc "/DAppVersion=$env:VERSION" installer.iss
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $name = "ExifRemover-Setup-$env:VERSION.exe"
+          $hash = (Get-FileHash "dist\$name" -Algorithm SHA256).Hash.ToLower()
+          Set-Content -Path dist\SHA256SUMS.txt -Value "$hash  $name" -Encoding ascii
+          Get-Content dist\SHA256SUMS.txt
 
-      - name: Smoke test (install, clean a GPS JPEG with a non-ASCII name, check backup)
+      - name: Smoke test (install, clean a GPS JPEG with a non-ASCII name, check backup, GUI starts)
         run: |
           $PSNativeCommandUseErrorActionPreference = $true
           $app = "$env:RUNNER_TEMP\app"
@@ -77,17 +90,69 @@ jobs:
           Rename-Item "$d\ảnh GPS.jpg" "a.jpg"
           $left = & "$t\exiftool.exe" -s -GPSLatitude -Make "$d\a.jpg"
           if ($left) { throw "metadata left: $left" }
-          Write-Host "smoke OK: GPS and Make removed, backup at $($bak.FullName)"
+          $gui = Start-Process $exe -PassThru
+          Start-Sleep 8
+          if ($gui.HasExited) { throw "GUI exited at start with code $($gui.ExitCode)" }
+          Stop-Process -Id $gui.Id
+          Write-Host "smoke OK: GPS and Make removed, backup at $($bak.FullName), GUI starts"
 
       - uses: actions/upload-artifact@v4
         with:
           name: ExifRemover-Setup-${{ env.VERSION }}
-          path: dist/ExifRemover-Setup-${{ env.VERSION }}.exe
+          path: |
+            dist/ExifRemover-Setup-${{ env.VERSION }}.exe
+            dist/SHA256SUMS.txt
 
       - name: Release
         if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $notes = "Windows installer for Exif Remover $env:GITHUB_REF_NAME. Download ExifRemover-Setup-$env:VERSION.exe and run it (installs for the current user, no admin). The installer is not code-signed, so Windows SmartScreen may warn: click More info, then Run anyway. Works offline; nothing is uploaded."
-          gh release create $env:GITHUB_REF_NAME "dist\ExifRemover-Setup-$env:VERSION.exe" --title "Exif Remover $env:GITHUB_REF_NAME" --notes $notes
+          python scripts/release_notes.py $env:GITHUB_REF_NAME notes.md
+          gh release create $env:GITHUB_REF_NAME "dist\ExifRemover-Setup-$env:VERSION.exe" dist\SHA256SUMS.txt --title "Exif Remover $env:GITHUB_REF_NAME" --notes-file notes.md
+
+      - name: Check release assets (installer + SHA256SUMS.txt)
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $names = gh release view $env:GITHUB_REF_NAME --json assets --jq '.assets[].name'
+          foreach ($want in "ExifRemover-Setup-$env:VERSION.exe", 'SHA256SUMS.txt') {
+            if ($names -notcontains $want) { throw "release lacks $want (has: $names)" }
+          }
+          Write-Host "release assets OK: $names"
+
+  update-e2e:
+    # Installs the previous release, lets it update itself to this one, checks the installed version.
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: windows
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Install previous release, self-update, verify
+        run: |
+          $cur = $env:GITHUB_REF_NAME
+          $tags = gh release list -R $env:GITHUB_REPOSITORY --limit 10 --json tagName --jq '.[].tagName'
+          $prev = @($tags | Where-Object { $_ -ne $cur })[0]
+          if (-not $prev -or $prev -eq 'v0.1.0') { Write-Host "skip: previous release ($prev) has no updater"; exit 0 }
+          gh release download $prev -R $env:GITHUB_REPOSITORY -p 'ExifRemover-Setup-*.exe' -D prev
+          $app = "$env:RUNNER_TEMP\app"
+          Start-Process (Get-ChildItem prev\*.exe).FullName -Wait -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=`"$app`""
+          $key = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{D9BBF5CF-7048-4CE3-9E04-B8D59A5EDA2E}_is1'
+          $before = (Get-ItemProperty $key).DisplayVersion
+          if ("v$before" -ne $prev) { throw "installed $before, expected $prev" }
+          Start-Process "$app\ExifRemover.exe" -ArgumentList '--self-update' -Wait
+          $want = $cur.TrimStart('v')
+          for ($i = 0; $i -lt 60; $i++) {
+            $now = (Get-ItemProperty $key).DisplayVersion
+            if ($now -eq $want) { break }
+            Start-Sleep 5
+          }
+          if ($now -ne $want) { throw "after self-update: $now, expected $want" }
+          Start-Sleep 5
+          if (!(Test-Path "$app\ExifRemover.exe")) { throw "exe missing after update" }
+          Write-Host "update OK: $prev -> $cur in $app"

@@ -1,123 +1,561 @@
-"""Exif Remover window: pick folders/files, Run, read the log. With arguments it runs the CLI instead."""
-import contextlib
+"""Exif Remover window (customtkinter, Vietnamese UI). With arguments it runs the CLI instead."""
+import os
 import queue
+import subprocess
 import sys
 import threading
 import tkinter as tk
-from tkinter import filedialog, scrolledtext
+from tkinter import filedialog, font as tkfont, messagebox, ttk
+
+import customtkinter as ctk
 
 import exif_remover as er
+import updater
 
-FILETYPES = [("Images, video, PDF", " ".join("*" + e for e in sorted(er.SUPPORTED))), ("All files", "*.*")]
+try:  # drag and drop is a nicety; the buttons work without it
+    from tkinterdnd2 import DND_FILES, TkinterDnD
+except ImportError:
+    TkinterDnD = None
 
-
-class ToQueue:
-    """File-like object: the worker's print() lines go to the UI thread through a queue."""
-
-    def __init__(self, q):
-        self.q = q
-
-    def write(self, s):
-        self.q.put(s)
-
-    def flush(self):
-        pass
+FILETYPES = [("Ảnh, video, PDF", " ".join("*" + e for e in sorted(er.SUPPORTED))), ("Tất cả", "*.*")]
+KIND = {**{e: "Ảnh" for e in er.IMAGE_EXT}, **{e: "Video" for e in er.VIDEO_EXT}, ".pdf": "PDF"}
+WAIT, BUSY, DONE, ERR = "•  Chờ", "…  Đang xoá", "✓  Đã xoá", "✗  Lỗi"
+ACCENT, ACCENT_HOVER = "#2563eb", "#1d4ed8"
+GREEN, RED, MUTED = ("#15803d", "#4ade80"), ("#b91c1c", "#f87171"), ("#6b7280", "#9ca3af")
 
 
-def work(args, q):
-    with contextlib.redirect_stdout(ToQueue(q)), contextlib.redirect_stderr(ToQueue(q)):
+def asset(name):
+    return os.path.join(er.HERE, "assets", name)
+
+
+def ui_family(root):
+    """A font with Vietnamese glyphs: Segoe UI on Windows, else the first installed fallback."""
+    if sys.platform == "win32":
+        return "Segoe UI"
+    have = set(tkfont.families(root))
+    return next((f for f in ("Noto Sans", "DejaVu Sans", "Liberation Sans") if f in have), "TkDefaultFont")
+
+
+def shorten(path, n=64):
+    return path if len(path) <= n else path[: n // 2 - 1] + "…" + path[-(n // 2):]
+
+
+def open_folder(path):
+    if sys.platform == "win32":
+        os.startfile(path)
+    else:
+        subprocess.Popen(["xdg-open", path])
+
+
+class Tooltip:
+    def __init__(self, widget, text=""):
+        self.widget, self.text, self.tip = widget, text, None
+        widget.bind("<Enter>", self.show, add="+")
+        widget.bind("<Leave>", self.hide, add="+")
+
+    def show(self, _):
+        if self.text and not self.tip:
+            self.tip = tk.Toplevel(self.widget)
+            self.tip.wm_overrideredirect(True)
+            self.tip.geometry(f"+{self.widget.winfo_pointerx() + 12}+{self.widget.winfo_pointery() + 16}")
+            tk.Label(self.tip, text=self.text, bg="#111827", fg="white", padx=8, pady=4,
+                     font=(App.family, 9)).pack()
+
+    def hide(self, _):
+        if self.tip:
+            self.tip.destroy()
+            self.tip = None
+
+
+class Root(ctk.CTk, *([TkinterDnD.DnDWrapper] if TkinterDnD else [])):
+    def __init__(self):
+        super().__init__()
+        self.dnd = False
+        if TkinterDnD:
+            try:
+                self.TkdndVersion = TkinterDnD._require(self)
+                self.dnd = True
+            except Exception:  # tkdnd binary missing for this Tk: keep the buttons only
+                pass
+
+
+class App:
+    family = "Segoe UI"
+
+    def __init__(self, initial=(), demo=False):
+        """demo: light theme and no update check (screenshots); the caller drives start()."""
+        self.q = queue.Queue()  # callables from worker threads, run on the UI thread
+        self.rows = {}  # treeview iid -> (path, folder it was added from or None)
+        self.running = False
+        self.on_finish = None
+        self.pending_update = None
+        self.settings = updater.load_settings()
+
+        ctk.set_appearance_mode("light" if demo else "system")
+        self.root = root = Root()
+        App.family = ui_family(root)
+        ctk.ThemeManager.theme["CTkFont"]["family"] = App.family
+        root.title("Exif Remover")
+        root.minsize(820, 640)
+        root.geometry("920x720")
         try:
-            code = er.main(args)
-        except Exception as e:  # never leave the window stuck in "running"
-            print(f"FAILED: {e}")
-            code = 2
-    q.put(code)
+            if sys.platform == "win32":
+                root.iconbitmap(asset("icon.ico"))
+            else:
+                root.iconphoto(True, tk.PhotoImage(file=asset("icon.png")))
+        except tk.TclError:
+            pass
+        root.configure(fg_color=("#f6f7f9", "#111318"))
+        root.grid_columnconfigure(0, weight=1)
+        self.build()
+        self.add(initial)
+        root.after(100, self.pump)
+        if not demo and self.settings["check_updates"]:
+            self.check_updates(manual=False)
 
+    def font(self, size=13, weight="normal"):
+        return ctk.CTkFont(family=App.family, size=size, weight=weight)
 
-def app(initial=(), on_done=None):
-    """initial: paths to pre-fill; on_done(root): if given, Run starts at once and this is called when it ends."""
-    root = tk.Tk()
-    root.title("Exif Remover")
-    root.minsize(680, 460)
-    q = queue.Queue()
+    def secondary(self, parent, text, command, width=0):
+        return ctk.CTkButton(parent, text=text, command=command, width=width or 28, height=32, corner_radius=6,
+                             fg_color=("white", "#1f2329"), hover_color=("#eef2f7", "#2a2f37"), border_width=1,
+                             border_color=("#d1d5db", "#3a3f47"), text_color=("#111827", "#e5e7eb"), font=self.font(13))
 
-    top = tk.Frame(root)
-    top.pack(fill="x", padx=8, pady=(8, 4))
-    paths = tk.Listbox(root, height=6, selectmode="extended")
-    paths.pack(fill="x", padx=8)
+    # ---------- layout ----------
+    def build(self):
+        root, pad = self.root, {"padx": 20}
 
-    def add(items):
-        for p in items:
-            if p and p not in paths.get(0, "end"):
-                paths.insert("end", p.replace("/", "\\") if sys.platform == "win32" else p)
+        self.banner = ctk.CTkFrame(root, fg_color=("#dbeafe", "#1e3a8a"), corner_radius=0)
+        self.banner_text = ctk.CTkLabel(self.banner, text="", font=self.font(13))
+        self.banner_text.pack(side="left", padx=20, pady=8)
+        self.banner_bar = ctk.CTkProgressBar(self.banner, width=220, progress_color=ACCENT)
+        self.banner_bar.pack(side="right", padx=20)
 
-    def remove():
-        for i in reversed(paths.curselection()):
-            paths.delete(i)
+        drop = ctk.CTkFrame(root, border_width=2, border_color=("#bfdbfe", "#1e40af"), corner_radius=10,
+                            fg_color=("white", "#161a20"))
+        drop.grid(row=1, column=0, sticky="ew", pady=(20, 12), **pad)
+        try:
+            self.drop_img = tk.PhotoImage(file=asset("drop.png"))
+            ctk.CTkLabel(drop, text="", image=self.drop_img).pack(pady=(20, 4))
+        except tk.TclError:
+            pass
+        title = "Kéo thả ảnh, video, PDF hoặc thư mục vào đây" if root.dnd else "Chọn ảnh, video, PDF hoặc thư mục"
+        ctk.CTkLabel(drop, text=title, font=self.font(18, "bold")).pack()
+        ctk.CTkLabel(drop, text="JPG, PNG, WebP, HEIC, AVIF, GIF, TIFF, MP4, MOV, PDF  ·  xử lý ngay trên máy, không tải tệp lên mạng",
+                     text_color=MUTED, font=self.font(12)).pack(pady=(2, 0))
+        btns = ctk.CTkFrame(drop, fg_color="transparent")
+        btns.pack(pady=(14, 20))
+        ctk.CTkButton(btns, text="Chọn tệp", width=130, height=34, corner_radius=6, fg_color=ACCENT,
+                      hover_color=ACCENT_HOVER, font=self.font(13, "bold"), command=self.pick_files).pack(side="left", padx=6)
+        self.secondary(btns, "Chọn thư mục", self.pick_folder, 130).pack(side="left", padx=6)
+        if root.dnd:
+            root.drop_target_register(DND_FILES)
+            root.dnd_bind("<<Drop>>", lambda e: self.add(root.tk.splitlist(e.data)))
 
-    tk.Button(top, text="Add folder", command=lambda: add([filedialog.askdirectory()])).pack(side="left")
-    tk.Button(top, text="Add files", command=lambda: add(filedialog.askopenfilenames(filetypes=FILETYPES))).pack(side="left", padx=4)
-    tk.Button(top, text="Remove", command=remove).pack(side="left")
+        bar = ctk.CTkFrame(root, fg_color="transparent")
+        bar.grid(row=2, column=0, sticky="ew", pady=(0, 8), **pad)
+        self.count = ctk.CTkLabel(bar, text="", font=self.font(14, "bold"))
+        self.count.pack(side="left")
+        self.secondary(bar, "Xoá danh sách", self.clear, 110).pack(side="right")
+        self.secondary(bar, "Bỏ tệp đã chọn", self.remove, 120).pack(side="right", padx=8)
+        self.secondary(bar, "Xem metadata", self.view_selected, 110).pack(side="right")
 
-    opts = tk.Frame(root)
-    opts.pack(fill="x", padx=8, pady=4)
-    backup = tk.BooleanVar(value=True)
-    tk.Checkbutton(opts, text="Make backup (copy each folder to <folder>_backup-YYYY-MM-DD first)",
-                   variable=backup).pack(side="left")
-    run_btn = tk.Button(opts, text="Run", width=12)
-    run_btn.pack(side="right")
+        table = ctk.CTkFrame(root, corner_radius=8, border_width=1, border_color=("#e5e7eb", "#2a2f37"),
+                             fg_color=("white", "#161a20"))
+        table.grid(row=3, column=0, sticky="nsew", **pad)
+        root.grid_rowconfigure(3, weight=1)
+        self.style_tables()
+        self.tree = ttk.Treeview(table, columns=("name", "kind", "meta", "status"), show="headings",
+                                 style="App.Treeview", selectmode="extended")
+        for col, text, width, anchor in (("name", "Tên tệp", 400, "w"), ("kind", "Loại", 100, "w"),
+                                         ("meta", "Metadata", 110, "center"), ("status", "Trạng thái", 130, "w")):
+            self.tree.heading(col, text=text, anchor=anchor)
+            self.tree.column(col, width=width, anchor=anchor, stretch=col == "name")
+        scroll = ctk.CTkScrollbar(table, command=self.tree.yview)
+        self.tree.configure(yscrollcommand=scroll.set)
+        self.tree.pack(side="left", fill="both", expand=True, padx=(2, 0), pady=2)
+        scroll.pack(side="right", fill="y", pady=4)
+        self.tree.bind("<Double-1>", lambda e: self.view_selected())
+        self.tree.bind("<Delete>", lambda e: self.remove())
 
-    log = scrolledtext.ScrolledText(root, height=16, state="disabled", font=("Consolas", 9))
-    log.pack(fill="both", expand=True, padx=8)
-    status = tk.Label(root, text="Add folders or files, then Run. Files are cleaned in place.", anchor="w",
-                      font=("Segoe UI", 11, "bold"))
-    status.pack(fill="x", padx=8, pady=8)
+        act = ctk.CTkFrame(root, fg_color="transparent")
+        act.grid(row=4, column=0, sticky="ew", pady=(14, 0), **pad)
+        self.backup = ctk.BooleanVar(value=True)
+        ctk.CTkSwitch(act, text="Tạo bản sao lưu trước khi xoá (khuyên dùng)", variable=self.backup,
+                      progress_color=ACCENT, font=self.font(13)).pack(side="left")
+        self.run_btn = ctk.CTkButton(act, text="Xoá metadata", height=44, width=210, corner_radius=8,
+                                     fg_color=ACCENT, hover_color=ACCENT_HOVER, font=self.font(16, "bold"),
+                                     command=self.start)
+        self.run_btn.pack(side="right")
 
-    def write(text):
-        log.configure(state="normal")
-        log.insert("end", text)
-        log.see("end")
-        log.configure(state="disabled")
+        self.progress = ctk.CTkProgressBar(root, height=8, progress_color=ACCENT)
+        self.progress.set(0)
 
-    def poll():
+        self.card = ctk.CTkFrame(root, corner_radius=8, border_width=1)
+        self.card.grid_columnconfigure(0, weight=1)
+        self.card_title = ctk.CTkLabel(self.card, text="", font=self.font(16, "bold"))
+        self.card_title.grid(row=0, column=0, sticky="w", padx=16, pady=(12, 0))
+        self.card_text = ctk.CTkLabel(self.card, text="", justify="left", anchor="w", font=self.font(13))
+        self.card_text.grid(row=1, column=0, sticky="w", padx=16, pady=(0, 12))
+        self.card_tip = Tooltip(self.card_text)
+        self.card_btn = self.secondary(self.card, "Mở thư mục sao lưu", None, 160)
+        self.card_btn_tip = Tooltip(self.card_btn)
+
+        foot = ctk.CTkFrame(root, fg_color="transparent")
+        foot.grid(row=7, column=0, sticky="ew", pady=(12, 0), **pad)
+        link = {"fg_color": "transparent", "hover_color": ("#e5e7eb", "#2a2f37"), "height": 26, "corner_radius": 6,
+                "text_color": MUTED, "font": self.font(12)}
+        self.log_btn = ctk.CTkButton(foot, text="▸  Chi tiết", width=90, command=self.toggle_log, **link)
+        self.log_btn.pack(side="left")
+        ctk.CTkLabel(foot, text=f"Phiên bản {er.__version__}", text_color=MUTED, font=self.font(12)).pack(side="right")
+        ctk.CTkButton(foot, text="Kiểm tra cập nhật", width=120, command=lambda: self.check_updates(manual=True),
+                      **link).pack(side="right", padx=(0, 12))
+        self.auto = ctk.BooleanVar(value=self.settings["check_updates"])
+        ctk.CTkCheckBox(foot, text="Tự kiểm tra cập nhật khi mở", variable=self.auto, checkbox_width=16,
+                        checkbox_height=16, corner_radius=4, border_width=1, fg_color=ACCENT, text_color=MUTED,
+                        font=self.font(12), command=self.save_auto).pack(side="right", padx=(0, 8))
+        mono = "Consolas" if sys.platform == "win32" else "DejaVu Sans Mono"
+        self.log = ctk.CTkTextbox(root, height=150, corner_radius=8, font=ctk.CTkFont(family=mono, size=12))
+        self.log.configure(state="disabled")
+        ctk.CTkFrame(root, fg_color="transparent", height=16).grid(row=9, column=0)
+        self.refresh_count()
+
+    def style_tables(self):
+        light = ctk.get_appearance_mode() == "Light"
+        bg, fg, head, sel, stripe, line = (
+            ("white", "#111827", "#f9fafb", "#dbeafe", "#f8fafc", "#e5e7eb") if light
+            else ("#161a20", "#e5e7eb", "#1f2329", "#1e3a8a", "#1b2027", "#2a2f37"))
+        scale = self.root.tk.call("tk", "scaling") / (96 / 72)  # Tk is DPI-aware on Windows; row height is pixels
+        style = ttk.Style(self.root)
+        style.theme_use("clam")
+        style.configure("App.Treeview", background=bg, fieldbackground=bg, foreground=fg, borderwidth=0,
+                        relief="flat", rowheight=int(32 * scale), font=(App.family, 10))
+        style.layout("App.Treeview", [("Treeview.treearea", {"sticky": "nswe"})])  # no inner border
+        style.configure("App.Treeview.Heading", background=head, foreground=MUTED[0] if light else MUTED[1],
+                        relief="flat", borderwidth=0, font=(App.family, 10, "bold"), padding=(8, 6))
+        style.map("App.Treeview.Heading", background=[("active", line)])
+        style.map("App.Treeview", background=[("selected", sel)], foreground=[("selected", fg)])
+        self.tree_tags = {"stripe": stripe, "ok": GREEN[0] if light else GREEN[1], "err": RED[0] if light else RED[1],
+                          "muted": MUTED[0] if light else MUTED[1]}
+
+    def tag_rows(self):
+        for i, iid in enumerate(self.tree.get_children()):
+            state = [t for t in self.tree.item(iid, "tags") if t in ("ok", "err")]
+            self.tree.item(iid, tags=(["stripe"] if i % 2 else []) + state)
+        self.tree.tag_configure("stripe", background=self.tree_tags["stripe"])
+        self.tree.tag_configure("ok", foreground=self.tree_tags["ok"])
+        self.tree.tag_configure("err", foreground=self.tree_tags["err"])
+
+    # ---------- file list ----------
+    def pick_files(self):
+        self.add(filedialog.askopenfilenames(parent=self.root, filetypes=FILETYPES))
+
+    def pick_folder(self):
+        d = filedialog.askdirectory(parent=self.root)
+        if d:
+            self.add([d])
+
+    def add(self, items):
+        if self.running:
+            return
+        known = {p for p, _ in self.rows.values()}
+        new, skipped = [], 0
+        for item in items:
+            item = os.path.normpath(er.to_posix(item))
+            files, bad = er.collect([item])
+            skipped += len(bad)
+            folder = item if os.path.isdir(item) else None
+            for f in files:
+                if f not in known:
+                    known.add(f)
+                    name = os.path.relpath(f, os.path.dirname(folder)) if folder else os.path.basename(f)
+                    ext = os.path.splitext(f)[1].lower()
+                    iid = self.tree.insert("", "end", values=(name, f"{KIND[ext]} {ext[1:].upper()}", "…", WAIT))
+                    self.rows[iid] = (f, folder)
+                    new.append((iid, f))
+        if skipped:
+            self.write(f"Bỏ qua {skipped} mục không hỗ trợ\n")
+        self.tag_rows()
+        self.refresh_count()
+        self.card.grid_forget()
+        threading.Thread(target=self.count_meta, args=(new,), daemon=True).start()
+
+    def count_meta(self, items):
+        for iid, f in items:
+            try:
+                n = str(er.meta_count(er.read_tags(f)))
+            except Exception:
+                n = "?"
+            self.q.put(lambda iid=iid, n=n: self.tree.exists(iid) and self.tree.set(iid, "meta", n))
+
+    def remove(self):
+        if not self.running:
+            for iid in self.tree.selection():
+                self.tree.delete(iid)
+                del self.rows[iid]
+            self.tag_rows()
+            self.refresh_count()
+
+    def clear(self):
+        if not self.running:
+            self.tree.delete(*self.rows)
+            self.rows.clear()
+            self.card.grid_forget()
+            self.refresh_count()
+
+    def refresh_count(self):
+        n = len(self.rows)
+        self.count.configure(text=f"Danh sách tệp ({n})" if n else "Chưa có tệp nào")
+
+    # ---------- metadata viewer ----------
+    def view_selected(self):
+        sel = self.tree.selection()
+        if not sel:
+            messagebox.showinfo("Xem metadata", "Chọn một tệp trong danh sách trước.", parent=self.root)
+            return
+        return self.view(self.rows[sel[0]][0])
+
+    def view(self, path):
+        try:
+            tags = er.read_tags(path)
+        except Exception as e:
+            messagebox.showerror("Xem metadata", f"Không đọc được metadata:\n{e}", parent=self.root)
+            return None
+        win = ctk.CTkToplevel(self.root)
+        win.title(f"Metadata – {os.path.basename(path)}")
+        win.geometry("780x540")
+        win.configure(fg_color=("#f6f7f9", "#111318"))
+        win.transient(self.root)
+        top = ctk.CTkFrame(win, fg_color="transparent")
+        top.pack(fill="x", padx=16, pady=(16, 8))
+        ctk.CTkLabel(top, text=os.path.basename(path), font=self.font(16, "bold")).pack(side="left")
+        search = ctk.CTkEntry(top, placeholder_text="Tìm, ví dụ: GPS, Date", width=240, height=32, corner_radius=6,
+                              font=self.font(13))
+        search.pack(side="right")
+        frame = ctk.CTkFrame(win, corner_radius=8, border_width=1, border_color=("#e5e7eb", "#2a2f37"),
+                             fg_color=("white", "#161a20"))
+        frame.pack(fill="both", expand=True, padx=16)
+        tree = ttk.Treeview(frame, columns=("g", "t", "v"), show="headings", style="App.Treeview")
+        for col, text, width in (("g", "Nhóm", 130), ("t", "Thẻ", 190), ("v", "Giá trị", 420)):
+            tree.heading(col, text=text, anchor="w")
+            tree.column(col, width=width, anchor="w", stretch=col == "v")
+        tree.tag_configure("stripe", background=self.tree_tags["stripe"])
+        scroll = ctk.CTkScrollbar(frame, command=tree.yview)
+        tree.configure(yscrollcommand=scroll.set)
+        tree.pack(side="left", fill="both", expand=True, padx=(2, 0), pady=2)
+        scroll.pack(side="right", fill="y", pady=4)
+        shown = ctk.CTkLabel(win, text="", text_color=MUTED, font=self.font(12))
+        shown.pack(anchor="w", padx=16, pady=(6, 12))
+        rows = [(g, n, str(v)[:300]) for g, n, v in tags]
+
+        def fill(*_):
+            needle = search.get().strip().lower()
+            tree.delete(*tree.get_children())
+            hits = [r for r in rows if needle in " ".join(r).lower()]
+            for i, r in enumerate(hits):
+                tree.insert("", "end", values=r, tags=("stripe",) if i % 2 else ())
+            shown.configure(text=f"{len(hits)} / {len(rows)} thẻ  ·  chỉ xem, không sửa")
+
+        search.bind("<KeyRelease>", fill)
+        fill()
+        win.after(150, win.lift)
+        return win
+
+    # ---------- cleaning ----------
+    def start(self):
+        if self.running:
+            return
+        if not self.rows:
+            messagebox.showinfo("Exif Remover", "Thêm tệp hoặc thư mục trước.", parent=self.root)
+            return
+        missing = [t for t in ("exiftool", "ffmpeg", "qpdf") if not er.tool(t)]
+        if missing:
+            messagebox.showerror("Exif Remover", "Thiếu công cụ: " + ", ".join(missing), parent=self.root)
+            return
+        self.running = True
+        self.run_btn.configure(state="disabled", text="Đang xoá…")
+        self.card.grid_forget()
+        self.progress.set(0)
+        self.progress.grid(row=5, column=0, sticky="ew", padx=20, pady=(12, 0))
+        for iid in self.rows:
+            self.tree.set(iid, "status", WAIT)
+            self.tree.item(iid, tags=())
+        self.tag_rows()
+        jobs = list(self.rows.items())
+        folders = sorted({r for _, r in self.rows.values() if r}) if self.backup.get() else []
+        self.write(f"--- Bắt đầu: {len(jobs)} tệp ---\n")
+        threading.Thread(target=self.work, args=(jobs, folders), daemon=True).start()
+
+    def work(self, jobs, folders):
+        post = self.q.put
+        backups = []
+        try:
+            for d in folders:
+                backups.append(er.backup_dir(d))
+                post(lambda b=backups[-1]: self.write(f"BACKUP {b}  ({er.count_files(b)} tệp)\n"))
+        except Exception as e:
+            post(lambda msg=str(e): self.finish(0, 0, [], f"Sao lưu thất bại, chưa xoá tệp nào: {msg}"))
+            return
+        ok = 0
+        for i, (iid, (path, _)) in enumerate(jobs):
+            post(lambda iid=iid: self.tree.set(iid, "status", BUSY))
+            try:
+                b, a = er.clean_file(path)
+                ok += 1
+                post(lambda iid=iid, b=b, a=a, p=path: self.row_done(iid, f"{b} → {a}", DONE, "ok",
+                                                                      f"OK     {b:4d} -> {a:3d}  {p}"))
+            except Exception as e:
+                post(lambda iid=iid, msg=str(e), p=path: self.row_done(iid, None, ERR, "err", f"FAIL   {p}: {msg}"))
+            post(lambda v=(i + 1) / len(jobs): self.progress.set(v))
+        post(lambda: self.finish(ok, len(jobs), backups))
+
+    def row_done(self, iid, meta, status, tag, line):
+        if self.tree.exists(iid):
+            if meta:
+                self.tree.set(iid, "meta", meta)
+            self.tree.set(iid, "status", status)
+            stripe = [t for t in self.tree.item(iid, "tags") if t == "stripe"]
+            self.tree.item(iid, tags=stripe + [tag])
+        self.write(line + "\n")
+
+    def finish(self, ok, total, backups, fatal=None):
+        self.running = False
+        self.run_btn.configure(state="normal", text="Xoá metadata")
+        self.progress.grid_forget()
+        good = not fatal and ok == total
+        self.card.configure(fg_color=("#f0fdf4", "#0f2a1a") if good else ("#fef2f2", "#2a1212"),
+                            border_color=("#bbf7d0", "#14532d") if good else ("#fecaca", "#7f1d1d"))
+        title = fatal or (f"✓  Đã xoá metadata {ok}/{total} tệp" if good else f"✗  Đã xoá {ok}/{total} tệp")
+        self.card_title.configure(text=title, text_color=GREEN if good else RED)
+        lines = [] if good or fatal else [f"{total - ok} tệp lỗi, tệp gốc được giữ nguyên. Xem ▸ Chi tiết."]
+        lines.append("Bản sao lưu: " + ("; ".join(shorten(b) for b in backups) if backups else "không có"))
+        self.card_text.configure(text="\n".join(lines))
+        self.card_tip.text = self.card_btn_tip.text = "\n".join(backups)
+        if backups:
+            self.card_btn.configure(command=lambda: open_folder(backups[0]))
+            self.card_btn.grid(row=0, column=1, rowspan=2, padx=16, pady=12)
+        else:
+            self.card_btn.grid_forget()
+        self.card.grid(row=6, column=0, sticky="ew", padx=20, pady=(14, 0))
+        self.write(f"{'OK' if good else 'FAILED'}: {ok}/{total} cleaned. Backup: {'; '.join(backups) or 'none'}\n")
+        if self.pending_update:
+            info, self.pending_update = self.pending_update, None
+            self.offer_update(info)
+        if self.on_finish:
+            self.on_finish()
+
+    # ---------- log ----------
+    def write(self, text):
+        self.log.configure(state="normal")
+        self.log.insert("end", text)
+        self.log.see("end")
+        self.log.configure(state="disabled")
+
+    def toggle_log(self):
+        if self.log.winfo_ismapped():
+            self.log.grid_forget()
+            self.log_btn.configure(text="▸  Chi tiết")
+        else:
+            self.log.grid(row=8, column=0, sticky="ew", padx=20, pady=(6, 0))
+            self.log_btn.configure(text="▾  Chi tiết")
+
+    def pump(self):
         while True:
             try:
-                item = q.get_nowait()
+                self.q.get_nowait()()
             except queue.Empty:
                 break
-            if isinstance(item, int):  # worker finished with this exit code
-                run_btn.configure(state="normal")
-                ok = item == 0
-                status.configure(text="OK: all files cleaned and verified" if ok else "FAILED: see the log",
-                                 fg="dark green" if ok else "red")
-                if on_done:
-                    on_done(root)
+        self.root.after(100, self.pump)
+
+    # ---------- updates ----------
+    def save_auto(self):
+        self.settings["check_updates"] = self.auto.get()
+        updater.save_settings(self.settings)
+
+    def check_updates(self, manual):
+        def work():
+            try:
+                info = updater.latest()
+            except Exception as e:
+                msg = str(e)
+                self.q.put(lambda: self.write(f"Không kiểm tra được cập nhật: {msg}\n"))
+                if manual:
+                    self.q.put(lambda: messagebox.showerror(
+                        "Kiểm tra cập nhật", f"Không kiểm tra được cập nhật.\n{msg}", parent=self.root))
                 return
-            write(item)
-        root.after(100, poll)
+            if updater.is_newer(info["tag"]):
+                self.q.put(lambda: self.offer_update(info))
+            elif manual:
+                self.q.put(lambda: messagebox.showinfo(
+                    "Kiểm tra cập nhật", f"Bạn đang dùng bản mới nhất ({er.__version__}).", parent=self.root))
+        threading.Thread(target=work, daemon=True).start()
 
-    def start():
-        items = list(paths.get(0, "end"))
-        if not items:
-            status.configure(text="Add at least one folder or file first.", fg="red")
+    def offer_update(self, info):
+        if self.running:  # never interrupt a cleaning run; ask again when it ends
+            self.pending_update = info
+            return None
+        win = ctk.CTkToplevel(self.root)
+        win.title("Cập nhật Exif Remover")
+        win.geometry("540x400")
+        win.resizable(False, False)
+        win.configure(fg_color=("#f6f7f9", "#111318"))
+        win.transient(self.root)
+        ctk.CTkLabel(win, text=f"Có bản mới {info['tag']}", font=self.font(18, "bold")).pack(anchor="w", padx=24, pady=(20, 0))
+        ctk.CTkLabel(win, text=f"Bạn đang dùng bản {er.__version__}. Cập nhật mất khoảng một phút, xong ứng dụng tự mở lại.",
+                     wraplength=490, justify="left", text_color=MUTED, font=self.font(13)).pack(anchor="w", padx=24, pady=(4, 10))
+        notes = ctk.CTkTextbox(win, height=180, corner_radius=8, border_width=1, font=self.font(13))
+        notes.insert("end", info["notes"][:2000] or "(không có ghi chú)")
+        notes.configure(state="disabled")
+        notes.pack(fill="both", expand=True, padx=24)
+        btns = ctk.CTkFrame(win, fg_color="transparent")
+        btns.pack(fill="x", padx=24, pady=18)
+
+        def now():
+            win.destroy()
+            self.install_update(info)
+
+        ctk.CTkButton(btns, text="Cập nhật ngay", width=140, height=36, corner_radius=6, fg_color=ACCENT,
+                      hover_color=ACCENT_HOVER, font=self.font(13, "bold"), command=now).pack(side="right")
+        self.secondary(btns, "Để sau", win.destroy, 100).pack(side="right", padx=10)
+        win.after(150, lambda: (win.lift(), win.grab_set()))
+        return win
+
+    def install_update(self, info):
+        if not (sys.platform == "win32" and getattr(sys, "frozen", False)):
+            messagebox.showinfo("Cập nhật", "Tự cập nhật chỉ chạy trong bản cài đặt trên Windows.", parent=self.root)
             return
-        run_btn.configure(state="disabled")
-        status.configure(text="Running...", fg="black")
-        log.configure(state="normal")
-        log.delete("1.0", "end")
-        log.configure(state="disabled")
-        args = ([] if backup.get() else ["--no-backup"]) + items
-        threading.Thread(target=work, args=(args, q), daemon=True).start()
-        root.after(100, poll)
+        self.run_btn.configure(state="disabled")
+        self.banner_text.configure(text=f"Đang tải bản cập nhật {info['tag']}…")
+        self.banner_bar.set(0)
+        self.banner.grid(row=0, column=0, sticky="ew")
 
-    run_btn.configure(command=start)
-    add(initial)
-    if on_done:
-        root.after(300, start)
-    root.mainloop()
+        def work():
+            try:
+                path = updater.download(info, progress=lambda p: self.q.put(lambda: self.banner_bar.set(p / 100)))
+            except Exception as e:
+                msg = str(e)
+                self.q.put(lambda: self.update_failed(msg))
+                return
+            self.q.put(lambda: self.launch(path))
+        threading.Thread(target=work, daemon=True).start()
+
+    def update_failed(self, msg):
+        self.banner.grid_forget()
+        self.run_btn.configure(state="normal")
+        messagebox.showerror("Cập nhật", f"Không cập nhật được, bạn vẫn dùng bản hiện tại.\n{msg}", parent=self.root)
+
+    def launch(self, path):
+        try:
+            updater.run_installer(path)
+        except OSError as e:
+            self.update_failed(str(e))
+            return
+        self.root.destroy()  # the installer replaces the files and starts the new version
 
 
 if __name__ == "__main__":
+    if sys.argv[1:] == ["--self-update"]:
+        sys.exit(updater.self_update())
     if len(sys.argv) > 1:
         sys.exit(er.main(sys.argv[1:]))  # CLI mode, also used by the CI smoke test
-    app()
+    App().root.mainloop()
