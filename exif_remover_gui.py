@@ -230,7 +230,7 @@ class App:
         style = ttk.Style(self.root)
         style.theme_use("clam")
         style.configure("App.Treeview", background=bg, fieldbackground=bg, foreground=fg, borderwidth=0,
-                        relief="flat", rowheight=int(32 * scale), font=(App.family, 10))
+                        relief="flat", rowheight=int(30 * scale), font=(App.family, 10))
         style.layout("App.Treeview", [("Treeview.treearea", {"sticky": "nswe"})])  # no inner border
         style.configure("App.Treeview.Heading", background=head, foreground=MUTED[0] if light else MUTED[1],
                         relief="flat", borderwidth=0, font=(App.family, 10, "bold"), padding=(8, 6))
@@ -349,6 +349,7 @@ class App:
         shown.pack(anchor="w", padx=16, pady=(6, 12))
         # ExifTool/System rows describe the file on disk (folder, dates), not metadata inside it.
         rows = [(g, n, str(v)[:300]) for g, n, v in tags if g not in ("ExifTool", "System")]
+        rows.sort(key=lambda r: r[0] in ("File", "JFIF", "Composite"))  # identifying groups first
 
         def fill(*_):
             needle = search.get().strip().lower()
