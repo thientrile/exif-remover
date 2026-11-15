@@ -2,6 +2,10 @@
 
 The section for a version is used as its release notes and shown in the in-app update dialog.
 
+## v0.2.1
+
+- Bản kiểm tra tự cập nhật: cài v0.2.0 rồi bấm **Cập nhật ngay** sẽ lên v0.2.1. Không đổi chức năng.
+
 ## v0.2.0
 
 - Giao diện mới bằng tiếng Việt: kéo thả tệp/thư mục, bảng tệp có trạng thái, thanh tiến trình, thẻ kết quả.
