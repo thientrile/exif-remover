@@ -56,7 +56,7 @@ jobs:
           $d = "$env:RUNNER_TEMP\smoke"
           New-Item -ItemType Directory $d | Out-Null
           & "$t\ffmpeg.exe" -v error -f lavfi -i color=red:s=16x16 -frames:v 1 "$d\a.jpg"
-          & "$t\exiftool.exe" -q -overwrite_original -GPSLatitude=48.8 -GPSLatitudeRef=N -Make=Canon "$d\a.jpg"
+          & "$t\exiftool.exe" -q -overwrite_original '-GPSLatitude=48.8' '-GPSLatitudeRef=N' '-Make=Canon' "$d\a.jpg"
           if (-not (& "$t\exiftool.exe" -s -GPSLatitude "$d\a.jpg")) { throw "fixture has no GPS" }
           Rename-Item "$d\a.jpg" "ảnh GPS.jpg"
           $p = Start-Process $exe -ArgumentList "`"$d`"" -Wait -PassThru
