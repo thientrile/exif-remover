@@ -36,6 +36,15 @@ def insert_after_ihdr(path, *chunks):
         f.write(data[:cut] + b"".join(chunks) + data[cut:])
 
 
+def icc_profile():
+    """Minimal ICC v2 display profile whose only tag is a copyright text."""
+    text = b"text\x00\x00\x00\x00Copyright Demo Profile\x00"
+    size = 128 + 4 + 12 + len(text)
+    header = struct.pack(">I4sI4s4s4s", size, b"none", 0x02100000, b"mntr", b"RGB ", b"XYZ ") + bytes(12) + b"acsp"
+    header += bytes(128 - len(header))
+    return header + struct.pack(">I4sII", 1, b"cprt", 144, len(text)) + text
+
+
 def names(path):
     return {n for _, n, _ in er.read_tags(path)}
 
@@ -71,6 +80,39 @@ class CleanTests(unittest.TestCase):
             self.assertNotIn(t, left)
         self.assertIn("Orientation", left)
         self.assert_no_temp_left()
+
+    def test_icc_profile_kept_jpeg_and_png(self):
+        icc = self.p("p.icc")
+        Path(icc).write_bytes(icc_profile())
+        for name in ("c.jpg", "c.png"):
+            f = self.p(name)
+            sh("ffmpeg", "-v", "error", "-f", "lavfi", "-i", "color=red:s=16x16", "-frames:v", "1", f)
+            sh("exiftool", "-q", "-overwrite_original", f"-ICC_Profile<={icc}", "-Artist=Bob", f)
+            self.assertIn("ProfileCopyright", names(f))
+            er.clean_file(f)
+            left = names(f)
+            self.assertIn("ProfileCopyright", left, name)
+            self.assertNotIn("Artist", left, name)
+
+    def test_gif_comment_and_xmp_removed(self):
+        f = self.p("a.gif")
+        sh("ffmpeg", "-v", "error", "-f", "lavfi", "-i", "color=red:s=16x16", "-frames:v", "1", f)
+        sh("exiftool", "-q", "-overwrite_original", "-Comment=Secret", "-XMP:Creator=Bob", f)
+        self.assertTrue({"Comment", "Creator"} <= names(f))
+        er.clean_file(f)
+        self.assertFalse({"Comment", "Creator"} & names(f))
+
+    def test_avif_exif_removed(self):
+        f = self.p("a.avif")
+        try:
+            sh("ffmpeg", "-v", "error", "-f", "lavfi", "-i", "color=red:s=64x64", "-frames:v", "1",
+               "-c:v", "libaom-av1", "-still-picture", "1", f)
+        except subprocess.CalledProcessError:
+            self.skipTest("this ffmpeg has no AV1 encoder")
+        sh("exiftool", "-q", "-overwrite_original", "-Make=Canon", "-XMP:Creator=Bob", f)
+        self.assertTrue({"Make", "Creator"} <= names(f))
+        er.clean_file(f)
+        self.assertFalse({"Make", "Creator"} & names(f))
 
     def test_png_c2pa_and_text_chunks_removed(self):
         f = self.p("a.png")

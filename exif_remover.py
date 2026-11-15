@@ -15,7 +15,9 @@ import sys
 import uuid
 from datetime import date
 
-IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif", ".tif", ".tiff"}
+__version__ = "0.2.0"  # single source: GUI, installer (CI reads it) and the release tag must match
+
+IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif", ".avif", ".tif", ".tiff", ".gif"}
 VIDEO_EXT = {".mp4", ".mov", ".m4v"}
 PDF_EXT = {".pdf"}
 SUPPORTED = IMAGE_EXT | VIDEO_EXT | PDF_EXT
@@ -24,7 +26,7 @@ SUPPORTED = IMAGE_EXT | VIDEO_EXT | PDF_EXT
 NEUTRAL_GROUPS = {"ExifTool", "System", "File", "Composite"}
 # Any tag in these groups means metadata survived.
 BAD_GROUP = re.compile(r"^(IFD\d|ExifIFD|SubIFD|GPS|InteropIFD|MakerNotes|XMP|IPTC|Photoshop|"
-                       r"ICC|JUMBF|CBOR|C2PA|Jpeg2000|ItemList|UserData|Keys)", re.I)
+                       r"JUMBF|CBOR|C2PA|Jpeg2000|ItemList|UserData|Keys)", re.I)
 BAD_NAME = re.compile(r"^(GPS.*|.*Location.*|Make|Model|.*Serial.*|Author|Artist|Creator|CreatorTool|"
                       r"Software|.*SoftwareAgent.*|Copyright|Owner.*|Lens.*|.*C2PA.*|JUMD.*|Claim.*|"
                       r".*Comment|Keywords|Producer|Encoder|Title|Subject|ImageDescription|"
@@ -32,9 +34,9 @@ BAD_NAME = re.compile(r"^(GPS.*|.*Location.*|Make|Model|.*Serial.*|Author|Artist
 # Rendering-only EXIF that exiftool writes back when we keep Orientation.
 OK_NAMES = {"Orientation", "YCbCrPositioning", "XResolution", "YResolution", "ResolutionUnit", "ExifByteOrder"}
 ZERO_DATE = re.compile(r"^[0: ]*$")
-# PNG chunks that are allowed to remain: critical ones plus pure rendering hints.
+# PNG chunks that are allowed to remain: critical ones plus pure rendering hints (iCCP = colour profile).
 PNG_KEEP = {b"IHDR", b"PLTE", b"IDAT", b"IEND", b"tRNS", b"gAMA", b"cHRM", b"sRGB", b"sBIT",
-            b"bKGD", b"pHYs", b"hIST", b"acTL", b"fcTL", b"fdAT"}
+            b"bKGD", b"pHYs", b"iCCP", b"hIST", b"acTL", b"fcTL", b"fdAT"}
 
 
 HERE = getattr(sys, "_MEIPASS", os.path.dirname(os.path.realpath(__file__)))
@@ -113,7 +115,8 @@ def meta_count(tags):
 def leftovers(tags):
     bad = []
     for g, name, v in tags:
-        if g in ("ExifTool", "System", "File") or name in OK_NAMES:
+        # ICC colour profile is kept on purpose: needed for correct colours, holds no personal data.
+        if g in ("ExifTool", "System", "File") or g.startswith("ICC") or name in OK_NAMES:
             continue
         if BAD_GROUP.match(g) or (BAD_NAME.match(name) and not (name.endswith("Date") and ZERO_DATE.match(str(v)))):
             bad.append(f"{g}:{name}")
@@ -149,7 +152,7 @@ def verify(path):
 
 
 def clean_image(src, dst):
-    run(["exiftool", "-q", "-q", "-all=", "-tagsfromfile", "@", "-Orientation", "-o", dst, src])
+    run(["exiftool", "-q", "-q", "-all=", "-tagsfromfile", "@", "-Orientation", "-ICC_Profile", "-o", dst, src])
 
 
 def clean_video(src, dst):

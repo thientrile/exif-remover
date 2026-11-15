@@ -22,6 +22,9 @@ Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
 UninstallDisplayIcon={app}\ExifRemover.exe
+SetupIconFile=assets\icon.ico
+; The app passes /CLOSEAPPLICATIONS when self-updating; close it if still running.
+CloseApplications=yes
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; Flags: unchecked
@@ -37,3 +40,16 @@ Name: "{autodesktop}\Exif Remover"; Filename: "{app}\ExifRemover.exe"; Tasks: de
 
 [Run]
 Filename: "{app}\ExifRemover.exe"; Description: "{cm:LaunchProgram,Exif Remover}"; Flags: nowait postinstall skipifsilent
+; Self-update runs the installer silently with /RELAUNCH: start the new version when done.
+Filename: "{app}\ExifRemover.exe"; Flags: nowait; Check: Relaunch
+
+[Code]
+function Relaunch: Boolean;
+var
+  i: Integer;
+begin
+  Result := False;
+  for i := 1 to ParamCount do
+    if CompareText(ParamStr(i), '/RELAUNCH') = 0 then
+      Result := True;
+end;

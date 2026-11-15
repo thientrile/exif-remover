@@ -37,3 +37,10 @@ They are run as external processes; each keeps its own license. Versions and dow
 - The app is packaged with PyInstaller (GPL-2.0 with a bootloader exception that allows
   distributing packaged apps under any license) and includes the CPython runtime (PSF License)
   and Tcl/Tk (BSD-style license).
+
+## GUI libraries (bundled in the Windows app only)
+
+- customtkinter 5.2.2, Tom Schimansky: CC0 1.0 (public domain). https://github.com/TomSchimansky/CustomTkinter
+- tkinterdnd2 0.4.3 (MIT) with the tkdnd Tcl extension (BSD-style license). https://github.com/pmgagne/tkinterdnd2
+- darkdetect 0.8.0, Alberto Sottile: BSD-3-Clause. https://github.com/albertosottile/darkdetect
+- packaging 24.2: Apache-2.0 or BSD-2-Clause. https://github.com/pypa/packaging
