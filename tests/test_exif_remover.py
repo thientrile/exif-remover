@@ -1,4 +1,5 @@
 import os
+import shutil
 import struct
 import subprocess
 import sys
@@ -12,8 +13,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import exif_remover as er  # noqa: E402
 
 
-def sh(*cmd):
-    subprocess.run(cmd, check=True, capture_output=True)
+def sh(name, *args):
+    subprocess.run([er.tool(name) or name, *args], check=True, capture_output=True)
 
 
 def png_chunk(kind, data):
@@ -59,6 +60,9 @@ class CleanTests(unittest.TestCase):
         sh("exiftool", "-q", "-overwrite_original", "-GPSLatitude=48.8", "-GPSLatitudeRef=N",
            "-GPSLongitude=2.3", "-GPSLongitudeRef=E", "-Make=Canon", "-Model=EOS", "-SerialNumber=123",
            "-Artist=Bob", "-Orientation#=6", f)
+        u = self.p("ảnh GPS.jpg")  # non-ASCII name: exiftool on Windows needs the UTF-8 argfile path
+        os.rename(f, u)
+        f = u
         self.assertIn("GPSLatitude", names(f))
         before, after = er.clean_file(f)
         self.assertGreater(before, after)
@@ -104,7 +108,7 @@ class CleanTests(unittest.TestCase):
         sh("ffmpeg", "-v", "error", "-f", "lavfi", "-i", "color=red:s=16x16", "-frames:v", "1", f)
         sh("exiftool", "-q", "-overwrite_original", "-GPSLatitude=48.8", "-GPSLatitudeRef=N", f)
         original = Path(f).read_bytes()
-        with mock.patch.object(er, "clean_image", lambda s, d: sh("cp", s, d)):  # engine that strips nothing
+        with mock.patch.object(er, "clean_image", shutil.copy):  # engine that strips nothing
             with self.assertRaisesRegex(RuntimeError, "metadata left"):
                 er.clean_file(f)
         self.assertEqual(Path(f).read_bytes(), original)
@@ -158,6 +162,16 @@ class CleanTests(unittest.TestCase):
             self.assertEqual(er.main([self.p("in")]), 2)
         self.assertEqual(Path(f).read_bytes(), tagged)
 
+    def test_bundled_tool_preferred_over_path(self):
+        os.makedirs(self.p("tools"))
+        exe = self.p("tools/qpdf.exe" if os.name == "nt" else "tools/qpdf")
+        Path(exe).write_text("")
+        os.chmod(exe, 0o755)
+        with mock.patch.object(er, "HERE", self.d):
+            self.assertEqual(os.path.normcase(er.tool("qpdf")), os.path.normcase(exe))
+        self.assertIsNone(er.tool("no-such-tool-xyz"))
+
+    @unittest.skipIf(os.name == "nt", "WSL path mapping is off on native Windows")
     def test_windows_path(self):
         self.assertEqual(er.to_posix(r"C:\Users\me\a b.png"), "/mnt/c/Users/me/a b.png")
         self.assertEqual(er.to_posix("/tmp/x"), "/tmp/x")

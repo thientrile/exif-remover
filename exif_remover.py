@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Strip metadata (EXIF/GPS/XMP/IPTC/C2PA) from images, video and PDF, in place, offline.
 
-Needs exiftool, ffmpeg and qpdf on PATH. Each file is cleaned into a temp file in the
+Needs exiftool, ffmpeg and qpdf: bundled in tools/ next to the app, else on PATH. Each file is cleaned into a temp file in the
 same folder, verified, then atomically swapped over the original. On any failure the
 original is left untouched.
 """
@@ -37,9 +37,18 @@ PNG_KEEP = {b"IHDR", b"PLTE", b"IDAT", b"IEND", b"tRNS", b"gAMA", b"cHRM", b"sRG
             b"bKGD", b"pHYs", b"hIST", b"acTL", b"fcTL", b"fdAT"}
 
 
+HERE = getattr(sys, "_MEIPASS", os.path.dirname(os.path.realpath(__file__)))
+NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)  # no console flash per call from the Windows GUI
+
+
+def tool(name):
+    """Bundled tools/<name>[.exe] first, then PATH; None if missing."""
+    return shutil.which(name, path=os.path.join(HERE, "tools")) or shutil.which(name)
+
+
 def to_posix(path):
-    """C:\\Users\\x -> /mnt/c/Users/x (WSL); other paths unchanged."""
-    m = re.match(r"^([A-Za-z]):[\\/](.*)$", path)
+    """C:\\Users\\x -> /mnt/c/Users/x (WSL); unchanged on native Windows and for other paths."""
+    m = os.name != "nt" and re.match(r"^([A-Za-z]):[\\/](.*)$", path)
     if m:
         return "/mnt/" + m.group(1).lower() + "/" + m.group(2).replace("\\", "/")
     return path
@@ -65,15 +74,25 @@ def backup_dir(src):
     dst, n = base, 2
     while os.path.exists(dst):
         dst, n = f"{base}-{n}", n + 1
-    run(["cp", "-a", src, dst])
+    shutil.copytree(src, dst, symlinks=True)
     got, want = count_files(dst), count_files(src)
     if got != want:
         raise RuntimeError(f"backup {dst} has {got} files, source has {want}")
     return dst
 
 
+def call(cmd):
+    exe, args, stdin = tool(cmd[0]) or cmd[0], cmd[1:], None
+    if cmd[0] == "exiftool":
+        # Args via a UTF-8 argfile: Windows exiftool reads its command line in the ANSI codepage,
+        # which mangles non-ASCII file names. shortcut: file names containing newlines unsupported.
+        args, stdin = ["-charset", "filename=utf8", "-@", "-"], "\n".join(args) + "\n"
+    return subprocess.run([exe, *args], input=stdin, capture_output=True, text=True,
+                          encoding="utf-8", errors="replace", creationflags=NO_WINDOW)
+
+
 def run(cmd):
-    p = subprocess.run(cmd, capture_output=True, text=True)
+    p = call(cmd)
     if p.returncode != 0:
         raise RuntimeError(f"{cmd[0]} failed: {(p.stderr or p.stdout).strip()[:300]}")
     return p.stdout
@@ -145,7 +164,7 @@ def clean_pdf(src, dst):
     try:
         run(["exiftool", "-q", "-q", "-all:all=", "-o", mid, src])
         # Full rewrite drops the old objects exiftool's incremental update left behind.
-        p = subprocess.run(["qpdf", "--object-streams=generate", mid, dst], capture_output=True, text=True)
+        p = call(["qpdf", "--object-streams=generate", mid, dst])
         if p.returncode not in (0, 3):  # 3 = succeeded with warnings
             raise RuntimeError(f"qpdf failed: {p.stderr.strip()[:300]}")
     finally:
@@ -205,9 +224,9 @@ def main(argv=None):
         return 0 if argv else 2
     no_backup = "--no-backup" in argv
     argv = [a for a in argv if a != "--no-backup"]
-    for tool in ("exiftool", "ffmpeg", "qpdf"):
-        if not shutil.which(tool):
-            print(f"missing tool: {tool}", file=sys.stderr)
+    for t in ("exiftool", "ffmpeg", "qpdf"):
+        if not tool(t):
+            print(f"missing tool: {t}", file=sys.stderr)
             return 2
     backups = []
     if not no_backup:  # shortcut: single-file inputs get no backup, only folders do

@@ -1,0 +1,82 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Version
+        run: |
+          $v = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME.TrimStart('v') } else { '0.0.0' }
+          "VERSION=$v" >> $env:GITHUB_ENV
+
+      - name: Fetch bundled tools (pinned, SHA256-checked)
+        run: python scripts/fetch_tools.py
+
+      - name: Unit tests (Windows, bundled tools)
+        run: python -m unittest discover -s tests -v
+
+      - name: Package (PyInstaller onedir)
+        run: |
+          pip install pyinstaller==6.22.3
+          pyinstaller --noconfirm --onedir --windowed --name ExifRemover --add-data "tools;tools" exif_remover_gui.py
+
+      - name: Installer (Inno Setup)
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (!(Test-Path $iscc)) { choco install innosetup -y --no-progress }
+          & $iscc "/DAppVersion=$env:VERSION" installer.iss
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
+      - name: Smoke test (install, clean a GPS JPEG with a non-ASCII name, check backup)
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          $app = "$env:RUNNER_TEMP\app"
+          Start-Process "dist\ExifRemover-Setup-$env:VERSION.exe" -Wait -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=`"$app`""
+          $exe = "$app\ExifRemover.exe"
+          $t = "$app\_internal\tools"
+          if (!(Test-Path $exe)) { throw "installer did not create $exe" }
+          $d = "$env:RUNNER_TEMP\smoke"
+          New-Item -ItemType Directory $d | Out-Null
+          & "$t\ffmpeg.exe" -v error -f lavfi -i color=red:s=16x16 -frames:v 1 "$d\a.jpg"
+          & "$t\exiftool.exe" -q -overwrite_original '-GPSLatitude=48.8' '-GPSLatitudeRef=N' '-Make=Canon' "$d\a.jpg"
+          if (-not (& "$t\exiftool.exe" -s -GPSLatitude "$d\a.jpg")) { throw "fixture has no GPS" }
+          Rename-Item "$d\a.jpg" "ảnh GPS.jpg"
+          $p = Start-Process $exe -ArgumentList "`"$d`"" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "app exited with $($p.ExitCode)" }
+          $bak = Get-ChildItem $env:RUNNER_TEMP -Directory -Filter 'smoke_backup-*'
+          if (@($bak).Count -ne 1 -or !(Test-Path "$($bak.FullName)\ảnh GPS.jpg")) { throw "backup missing" }
+          Rename-Item "$d\ảnh GPS.jpg" "a.jpg"
+          $left = & "$t\exiftool.exe" -s -GPSLatitude -Make "$d\a.jpg"
+          if ($left) { throw "metadata left: $left" }
+          Write-Host "smoke OK: GPS and Make removed, backup at $($bak.FullName)"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ExifRemover-Setup-${{ env.VERSION }}
+          path: dist/ExifRemover-Setup-${{ env.VERSION }}.exe
+
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $notes = "Windows installer for Exif Remover $env:GITHUB_REF_NAME. Download ExifRemover-Setup-$env:VERSION.exe and run it (installs for the current user, no admin). The installer is not code-signed, so Windows SmartScreen may warn: click More info, then Run anyway. Works offline; nothing is uploaded."
+          gh release create $env:GITHUB_REF_NAME "dist\ExifRemover-Setup-$env:VERSION.exe" --title "Exif Remover $env:GITHUB_REF_NAME" --notes $notes
