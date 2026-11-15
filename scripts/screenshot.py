@@ -60,7 +60,8 @@ if __name__ == "__main__":
         root.after(1500, lambda: (capture(win, "metadata.png"), win.destroy(), root.after(500, run)))
 
     def run():
-        app.on_finish = lambda: root.after(1200, lambda: (capture(root, "screenshot.png"), root.destroy()))
+        app.on_finish = lambda: root.after(1200, lambda: (app.tree.selection_set(()), capture(root, "screenshot.png"),
+                                                          root.destroy()))
         app.start()
 
     root.after(3000, show_metadata)

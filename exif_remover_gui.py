@@ -96,8 +96,8 @@ class App:
         App.family = ui_family(root)
         ctk.ThemeManager.theme["CTkFont"]["family"] = App.family
         root.title("Exif Remover")
-        root.minsize(820, 640)
-        root.geometry("920x720")
+        root.minsize(820, 600)
+        root.geometry("920x680+0+0" if demo else "920x700")  # demo: fits the 1024x768 CI screen
         try:
             if sys.platform == "win32":
                 root.iconbitmap(asset("icon.ico"))
@@ -133,10 +133,10 @@ class App:
 
         drop = ctk.CTkFrame(root, border_width=2, border_color=("#bfdbfe", "#1e40af"), corner_radius=10,
                             fg_color=("white", "#161a20"))
-        drop.grid(row=1, column=0, sticky="ew", pady=(20, 12), **pad)
+        drop.grid(row=1, column=0, sticky="ew", pady=(16, 12), **pad)
         try:
             self.drop_img = tk.PhotoImage(file=asset("drop.png"))
-            ctk.CTkLabel(drop, text="", image=self.drop_img).pack(pady=(20, 4))
+            ctk.CTkLabel(drop, text="", image=self.drop_img).pack(pady=(14, 2))
         except tk.TclError:
             pass
         title = "Kéo thả ảnh, video, PDF hoặc thư mục vào đây" if root.dnd else "Chọn ảnh, video, PDF hoặc thư mục"
@@ -144,7 +144,7 @@ class App:
         ctk.CTkLabel(drop, text="JPG, PNG, WebP, HEIC, AVIF, GIF, TIFF, MP4, MOV, PDF  ·  xử lý ngay trên máy, không tải tệp lên mạng",
                      text_color=MUTED, font=self.font(12)).pack(pady=(2, 0))
         btns = ctk.CTkFrame(drop, fg_color="transparent")
-        btns.pack(pady=(14, 20))
+        btns.pack(pady=(12, 16))
         ctk.CTkButton(btns, text="Chọn tệp", width=130, height=34, corner_radius=6, fg_color=ACCENT,
                       hover_color=ACCENT_HOVER, font=self.font(13, "bold"), command=self.pick_files).pack(side="left", padx=6)
         self.secondary(btns, "Chọn thư mục", self.pick_folder, 130).pack(side="left", padx=6)
@@ -182,7 +182,8 @@ class App:
         act.grid(row=4, column=0, sticky="ew", pady=(14, 0), **pad)
         self.backup = ctk.BooleanVar(value=True)
         ctk.CTkSwitch(act, text="Tạo bản sao lưu trước khi xoá (khuyên dùng)", variable=self.backup,
-                      progress_color=ACCENT, font=self.font(13)).pack(side="left")
+                      progress_color=ACCENT, button_color="white", button_hover_color="#f3f4f6",
+                      fg_color=("#d1d5db", "#4b5563"), font=self.font(13)).pack(side="left")
         self.run_btn = ctk.CTkButton(act, text="Xoá metadata", height=44, width=210, corner_radius=8,
                                      fg_color=ACCENT, hover_color=ACCENT_HOVER, font=self.font(16, "bold"),
                                      command=self.start)
@@ -346,7 +347,8 @@ class App:
         scroll.pack(side="right", fill="y", pady=4)
         shown = ctk.CTkLabel(win, text="", text_color=MUTED, font=self.font(12))
         shown.pack(anchor="w", padx=16, pady=(6, 12))
-        rows = [(g, n, str(v)[:300]) for g, n, v in tags]
+        # ExifTool/System rows describe the file on disk (folder, dates), not metadata inside it.
+        rows = [(g, n, str(v)[:300]) for g, n, v in tags if g not in ("ExifTool", "System")]
 
         def fill(*_):
             needle = search.get().strip().lower()
