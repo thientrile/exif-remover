@@ -2,6 +2,12 @@
 
 The section for a version is used as its release notes and shown in the in-app update dialog.
 
+## v0.2.3
+
+- Đóng cửa sổ đúng lúc vừa xoá xong không còn làm ứng dụng bị treo nút.
+- Sửa lỗi hiếm: tệp sai đuôi nằm trong thư mục có tên chứa ".exifclean-".
+- Sao lưu an toàn hơn khi hai lần chạy cùng lúc: không bao giờ xoá bản sao lưu của lần chạy khác.
+
 ## v0.2.2
 
 - Sửa lỗi: ảnh JPEG bị đặt đuôi .png (hay ngược lại) trước đây báo "✗ Lỗi" cho mọi tệp. Nay nhận đúng định dạng thật, xoá metadata và giữ nguyên tên tệp. Cột Loại ghi rõ, ví dụ "JPEG (đuôi .png)".

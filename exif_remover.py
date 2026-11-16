@@ -15,7 +15,7 @@ import sys
 import uuid
 from datetime import date
 
-__version__ = "0.2.2"  # single source: GUI, installer (CI reads it) and the release tag must match
+__version__ = "0.2.3"  # single source: GUI, installer (CI reads it) and the release tag must match
 
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif", ".avif", ".tif", ".tiff", ".gif"}
 VIDEO_EXT = {".mp4", ".mov", ".m4v"}
@@ -84,8 +84,12 @@ def backup_dir(src, stop=None):
     src = os.path.normpath(os.path.realpath(src))
     base = f"{src}_backup-{date.today().isoformat()}"
     dst, n = base, 2
-    while os.path.exists(dst):
-        dst, n = f"{base}-{n}", n + 1
+    while True:  # mkdir reserves the name atomically, so the cleanup below only ever removes our own copy
+        try:
+            os.mkdir(dst)
+            break
+        except FileExistsError:
+            dst, n = f"{base}-{n}", n + 1
 
     def copy(s, d):
         if stop is not None and stop.is_set():
@@ -93,7 +97,7 @@ def backup_dir(src, stop=None):
         return shutil.copy2(s, d)
 
     try:
-        shutil.copytree(src, dst, symlinks=True, copy_function=copy)
+        shutil.copytree(src, dst, symlinks=True, copy_function=copy, dirs_exist_ok=True)
     except BaseException:
         shutil.rmtree(dst, ignore_errors=True)
         raise
@@ -242,9 +246,10 @@ def clean_file(path):
         raise RuntimeError(f"content is {file_type(tags) or 'unknown'}, not {os.path.splitext(path)[1]}: unsupported")
     d, name = os.path.split(path)
     stem = os.path.splitext(name)[0]
-    tmp = os.path.join(d, f".{stem}.exifclean-{uuid.uuid4().hex[:8]}{ext}")
+    token = uuid.uuid4().hex[:8]
+    tmp = os.path.join(d, f".{stem}.exifclean-{token}{ext}")
     # exiftool also reads the source type from its name, so a misnamed source is read via a correctly named copy.
-    src = path if ext == os.path.splitext(name)[1].lower() else tmp.replace(".exifclean-", ".exifclean-src-")
+    src = path if ext == os.path.splitext(name)[1].lower() else os.path.join(d, f".{stem}.exifclean-src-{token}{ext}")
     try:
         if src != path:
             shutil.copy2(path, src)
