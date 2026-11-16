@@ -643,7 +643,7 @@ class App:
     def show_backups(self):
         win = ctk.CTkToplevel(self.root)
         win.title("Bản sao lưu")
-        win.geometry("860x480")
+        win.geometry("860x520")
         win.configure(fg_color=("#f6f7f9", "#111318"))
         win.transient(self.root)
         ctk.CTkLabel(win, text="Bản sao lưu do ứng dụng tạo", font=self.font(16, "bold")).pack(anchor="w", padx=16, pady=(16, 0))
@@ -691,8 +691,10 @@ class App:
             self.delete_backups(sel)
             fill()
 
+        auto = ctk.CTkFrame(win, fg_color="transparent")
+        auto.pack(side="bottom", fill="x", padx=16, pady=(0, 14), before=frame)  # before: never squeezed out by the list
         btns = ctk.CTkFrame(win, fg_color="transparent")
-        btns.pack(fill="x", padx=16, pady=12)
+        btns.pack(side="bottom", fill="x", padx=16, pady=12, before=frame)
         empty = ctk.CTkLabel(btns, text="", text_color=MUTED, font=self.font(12))
         empty.pack(side="left")
         ctk.CTkButton(btns, text="Xoá", width=100, height=32, corner_radius=6, fg_color=STOP, hover_color=STOP_HOVER,
@@ -700,8 +702,6 @@ class App:
         self.secondary(btns, "Mở thư mục", lambda: [open_folder(p) for p in tree.selection()[:1]], 100).pack(side="right", padx=8)
         self.secondary(btns, "Chọn tất cả", lambda: tree.selection_set(tree.get_children()), 100).pack(side="right")
 
-        auto = ctk.CTkFrame(win, fg_color="transparent")
-        auto.pack(fill="x", padx=16, pady=(0, 14))
         days = self.settings.get("auto_clean_days", 0)
         on = ctk.BooleanVar(value=bool(days))
         n = ctk.StringVar(value=str(days or 30))
