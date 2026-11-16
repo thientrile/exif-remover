@@ -29,7 +29,8 @@ def jpg(path, **tags):
 @unittest.skipIf(gui is None, "GUI unavailable: " + ("" if gui else why))
 class GuiTests(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
+        # the background tag counter may still hold a file open on Windows when a test ends
+        self.tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         self.d = os.path.join(self.tmp.name, "photos")
         for name in ("a.jpg", "b.jpg", "c.jpg", "sub/jpeg named.png", "old_backup-2026-01-01/x.jpg"):
             jpg(os.path.join(self.d, name))

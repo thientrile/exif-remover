@@ -12,10 +12,11 @@ import shutil
 import struct
 import subprocess
 import sys
+import time
 import uuid
 from datetime import date
 
-__version__ = "0.2.3"  # single source: GUI, installer (CI reads it) and the release tag must match
+__version__ = "0.2.2"  # single source: GUI, installer (CI reads it) and the release tag must match
 
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif", ".avif", ".tif", ".tiff", ".gif"}
 VIDEO_EXT = {".mp4", ".mov", ".m4v"}
@@ -232,6 +233,18 @@ def engine_for(ext):
     return clean_pdf
 
 
+def replace(tmp, path, tries=25):
+    """os.replace, retried while Windows reports the target open elsewhere (the GUI's tag counter,
+    OneDrive sync, antivirus); a reader without FILE_SHARE_DELETE blocks the swap."""
+    for i in range(tries):
+        try:
+            return os.replace(tmp, path)
+        except PermissionError:
+            if i == tries - 1:
+                raise
+            time.sleep(0.2)
+
+
 def clean_file(path):
     """Clean one file in place. Returns (tags_before, tags_after); raises on failure, original untouched."""
     path = os.path.realpath(path)
@@ -256,7 +269,7 @@ def clean_file(path):
         engine_for(ext)(src, tmp)
         after = meta_count(verify(tmp))
         shutil.copymode(path, tmp)
-        os.replace(tmp, path)
+        replace(tmp, path)
     finally:
         for f in {tmp, src} - {path}:
             if os.path.exists(f):

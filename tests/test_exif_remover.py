@@ -251,6 +251,18 @@ class CleanTests(unittest.TestCase):
         self.assertEqual(os.listdir(taken), ["keep.txt"])  # the other backup survives
         self.assertEqual(sorted(os.listdir(self.d)), sorted(["in", os.path.basename(taken)]))
 
+    def test_replace_retries_while_target_locked(self):
+        Path(self.p("t"), ).write_text("new")
+        Path(self.p("f")).write_text("old")
+        real = os.replace
+        with mock.patch.object(er.os, "replace", side_effect=[PermissionError(32, "in use"), None]) as rep:
+            er.replace(self.p("t"), self.p("f"))
+        self.assertEqual(rep.call_count, 2)
+        with mock.patch.object(er.os, "replace", side_effect=PermissionError(32, "in use")):
+            with self.assertRaises(PermissionError):
+                er.replace(self.p("t"), self.p("f"), tries=2)
+        real(self.p("t"), self.p("f"))
+
     def test_already_clean_png_with_render_chunks_is_ok(self):
         f = self.p("clean.png")
         sh("ffmpeg", "-v", "error", "-f", "lavfi", "-i", "color=blue:s=16x16", "-frames:v", "1", f)

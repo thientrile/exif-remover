@@ -2,12 +2,6 @@
 
 The section for a version is used as its release notes and shown in the in-app update dialog.
 
-## v0.2.3
-
-- Đóng cửa sổ đúng lúc vừa xoá xong không còn làm ứng dụng bị treo nút.
-- Sửa lỗi hiếm: tệp sai đuôi nằm trong thư mục có tên chứa ".exifclean-".
-- Sao lưu an toàn hơn khi hai lần chạy cùng lúc: không bao giờ xoá bản sao lưu của lần chạy khác.
-
 ## v0.2.2
 
 - Sửa lỗi: ảnh JPEG bị đặt đuôi .png (hay ngược lại) trước đây báo "✗ Lỗi" cho mọi tệp. Nay nhận đúng định dạng thật, xoá metadata và giữ nguyên tên tệp. Cột Loại ghi rõ, ví dụ "JPEG (đuôi .png)".
@@ -15,6 +9,10 @@ The section for a version is used as its release notes and shown in the in-app u
 - Không bao giờ xoá metadata trong thư mục sao lưu (`..._backup-YYYY-MM-DD`): chọn thư mục đó sẽ được cảnh báo và bỏ qua.
 - Rê chuột lên một dòng để xem đường dẫn đầy đủ và lý do lỗi. Tên tệp hiển thị theo thư mục đã chọn, rút gọn ở giữa.
 - Đếm metadata nhanh hơn với thư mục nhiều tệp (đọc theo lô).
+- Đóng cửa sổ đúng lúc vừa xoá xong không còn làm ứng dụng bị treo nút.
+- Sửa lỗi hiếm: tệp sai đuôi nằm trong thư mục có tên chứa ".exifclean-".
+- Sao lưu an toàn hơn khi hai lần chạy cùng lúc: không bao giờ xoá bản sao lưu của lần chạy khác.
+- Không còn lỗi khi bấm xoá ngay lúc ứng dụng đang đọc metadata (tệp bị khoá tạm thời trên Windows: thử lại).
 
 ## v0.2.1
 
