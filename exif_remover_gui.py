@@ -42,6 +42,60 @@ def shorten(path, n=64):
     return path if len(path) <= n else path[: n // 2 - 1] + "…" + path[-(n // 2):]
 
 
+def pick_folders_win(owner, title, start=None):
+    """Windows' own folder dialog with multi-select (IFileOpenDialog via raw COM vtable calls, no extra
+    package). Returns the picked folders, [] on cancel, None when the dialog is unavailable."""
+    import ctypes
+    from ctypes import byref, c_void_p, c_wchar_p, wintypes
+    ole = ctypes.windll.ole32
+    shell = ctypes.windll.shell32
+
+    def guid(s):
+        g = (ctypes.c_byte * 16)()
+        ole.CLSIDFromString(c_wchar_p(s), byref(g))
+        return g
+
+    def call(obj, index, *args, types=()):
+        fn = ctypes.cast(obj, ctypes.POINTER(ctypes.POINTER(c_void_p))).contents[index]
+        return ctypes.WINFUNCTYPE(ctypes.c_long, c_void_p, *types)(fn)(obj, *args)
+
+    def release(obj):
+        if obj:
+            call(obj, 2)
+
+    ole.CoInitialize(None)  # Tk/tkdnd may have done it already: S_FALSE / RPC_E_CHANGED_MODE are fine
+    dlg, items, folder = c_void_p(), c_void_p(), c_void_p()
+    if ole.CoCreateInstance(guid("{DC1C5A9C-E88A-4dde-A5A1-60F82A20AEF7}"), None, 1,  # CLSCTX_INPROC_SERVER
+                            guid("{d57c7288-d4ad-4768-be02-9d969532d960}"), byref(dlg)) != 0:
+        return None
+    try:
+        # FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_ALLOWMULTISELECT | FOS_PATHMUSTEXIST
+        call(dlg, 9, 0x20 | 0x40 | 0x200 | 0x800, types=(wintypes.DWORD,))
+        call(dlg, 17, title, types=(c_wchar_p,))
+        if start and shell.SHCreateItemFromParsingName(c_wchar_p(start), None,
+                                                       guid("{43826d1e-e718-42ee-bc55-a1e261c37bfe}"), byref(folder)) == 0:
+            call(dlg, 12, folder, types=(c_void_p,))
+        if call(dlg, 3, owner, types=(wintypes.HWND,)) != 0:  # Show: cancelled or failed
+            return []
+        if call(dlg, 27, byref(items), types=(ctypes.POINTER(c_void_p),)) != 0:  # GetResults
+            return []
+        count = wintypes.DWORD()
+        call(items, 7, byref(count), types=(ctypes.POINTER(wintypes.DWORD),))
+        picked = []
+        for i in range(count.value):
+            item, name = c_void_p(), c_wchar_p()
+            if call(items, 8, i, byref(item), types=(wintypes.DWORD, ctypes.POINTER(c_void_p))) == 0:
+                if call(item, 5, 0x80058000, byref(name), types=(wintypes.DWORD, ctypes.POINTER(c_wchar_p))) == 0:
+                    picked.append(name.value)  # SIGDN_FILESYSPATH
+                    ole.CoTaskMemFree(name)
+                release(item)
+        return picked
+    finally:
+        release(folder)
+        release(items)
+        release(dlg)
+
+
 def open_folder(path):
     if sys.platform == "win32":
         os.startfile(path)
@@ -156,7 +210,7 @@ class App:
         self.secondary(btns, "Chọn thư mục", self.pick_folder, 130).pack(side="left", padx=6)
         if root.dnd:
             root.drop_target_register(DND_FILES)
-            root.dnd_bind("<<Drop>>", lambda e: self.add(root.tk.splitlist(e.data)))
+            root.dnd_bind("<<Drop>>", lambda e: self.drop(e.data))
 
         bar = ctk.CTkFrame(root, fg_color="transparent")
         bar.grid(row=2, column=0, sticky="ew", pady=(0, 8), **pad)
@@ -260,21 +314,32 @@ class App:
     def pick_files(self):
         self.add(filedialog.askopenfilenames(parent=self.root, filetypes=FILETYPES))
 
+    def drop(self, data):
+        """Explorer drops several items as one Tcl list, e.g. '{C:/a b} C:/c'."""
+        self.add(self.root.tk.splitlist(data))
+
     def pick_folder(self):
-        d = filedialog.askdirectory(parent=self.root)
-        if d:
-            self.add([d])
+        dirs = None
+        if sys.platform == "win32":
+            try:
+                dirs = pick_folders_win(int(self.root.wm_frame(), 16), "Chọn một hoặc nhiều thư mục (giữ Ctrl)")
+            except Exception as e:  # never lose the button: fall back to Tk's single-folder dialog
+                self.write(f"Hộp chọn nhiều thư mục lỗi, dùng hộp thường: {e}\n")
+        if dirs is None:
+            d = filedialog.askdirectory(parent=self.root)
+            dirs = [d] if d else []
+        if dirs:
+            self.add(dirs)
 
     def add(self, items):
         if self.running:
             return
         known = {p for p, _ in self.rows.values()}
-        new, skipped = [], 0
+        new, skipped, backups = [], 0, []
         for item in items:
             item = os.path.normpath(er.to_posix(item))
             if er.in_backup(item):
-                messagebox.showwarning("Thư mục sao lưu", f"Bỏ qua {item}\n\nĐây là bản sao lưu (chứa tệp gốc còn "
-                                       "metadata) nên ứng dụng không xoá metadata trong đó.", parent=self.root)
+                backups.append(item)
                 continue
             files, bad = er.collect([item])
             skipped += len(bad)
@@ -289,6 +354,10 @@ class App:
                     new.append((iid, f))
         if skipped:
             self.write(f"Bỏ qua {skipped} mục không hỗ trợ\n")
+        if backups:
+            messagebox.showwarning("Thư mục sao lưu", "Bỏ qua:\n" + "\n".join(er.to_windows(b) for b in backups) +
+                                   "\n\nĐây là bản sao lưu (chứa tệp gốc còn metadata) nên ứng dụng không xoá "
+                                   "metadata trong đó.", parent=self.root)
         self.tag_rows()
         self.refresh_count()
         self.card.grid_forget()

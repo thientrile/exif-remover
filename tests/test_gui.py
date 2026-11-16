@@ -115,6 +115,78 @@ class GuiTests(unittest.TestCase):
         ask.assert_called_once()
         self.assertIn(gui.STOPPED, self.col("status").values())
 
+    def test_several_folders_add_up_deduped(self):
+        a, b, c = (os.path.join(self.tmp.name, n) for n in ("A", "B b", "C"))
+        for d in (a, b, c):
+            jpg(os.path.join(d, "x.jpg"))
+        jpg(os.path.join(self.tmp.name, "old_backup-2026-01-01", "y.jpg"))
+        base = len(self.app.rows)
+        with mock.patch.object(gui, "pick_folders_win", side_effect=[[a, b], [b, c]]), \
+                mock.patch.object(gui.filedialog, "askdirectory", side_effect=[a, c]):
+            self.app.pick_folder()  # several at once (Windows dialog) or one (Tk dialog elsewhere)
+            self.app.pick_folder()  # picking again adds to the list, repeats are skipped
+        want = 3 if sys.platform == "win32" else 2
+        self.assertEqual(len(self.app.rows), base + want)
+        # dropping several folders from Explorer at once: one Tcl list, names with spaces in braces
+        with mock.patch.object(gui.messagebox, "showwarning") as warn:
+            self.app.drop("{%s} %s {%s}" % (b.replace("\\", "/"), c.replace("\\", "/"),
+                                            os.path.join(self.tmp.name, "old_backup-2026-01-01").replace("\\", "/")))
+        warn.assert_called_once()
+        self.assertEqual(len(self.app.rows), base + 3)
+        self.assertEqual(len({p for p, _ in self.app.rows.values()}), len(self.app.rows))
+
+    @unittest.skipUnless(sys.platform == "win32", "Windows folder dialog")
+    def test_windows_dialog_picks_several_folders(self):
+        import ctypes
+        import ctypes.wintypes
+        import threading
+        u = ctypes.windll.user32
+        u.FindWindowW.restype = ctypes.c_void_p
+        start = os.path.join(self.tmp.name, "pick")  # holds only the two folders Ctrl+A will select
+        for n in ("A", "B b"):
+            os.makedirs(os.path.join(start, n))
+        title = "Pick test"
+
+        def child(parent, cls):  # first descendant window of a class
+            found, buf = [], ctypes.create_unicode_buffer(64)
+
+            def visit(h, _):
+                u.GetClassNameW(ctypes.c_void_p(h), buf, 64)
+                if buf.value == cls:
+                    found.append(h)
+                return not found
+
+            u.EnumChildWindows(ctypes.c_void_p(parent),
+                               ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)(visit), None)
+            return found[0] if found else None
+
+        def key(vk, up=False):
+            u.keybd_event(vk, 0, 2 if up else 0, 0)
+
+        def drive():  # like a user: click the empty part of the folder list, Ctrl+A, then OK
+            hwnd = None
+            for _ in range(200):
+                hwnd = u.FindWindowW(None, title)
+                if hwnd:
+                    break
+                time.sleep(0.05)
+            time.sleep(1.5)
+            view = child(child(hwnd, "SHELLDLL_DefView"), "DirectUIHWND")
+            r = ctypes.wintypes.RECT()
+            u.GetWindowRect(ctypes.c_void_p(view), ctypes.byref(r))
+            u.SetForegroundWindow(ctypes.c_void_p(hwnd))
+            u.SetCursorPos(r.right - 30, r.bottom - 30)
+            u.mouse_event(2, 0, 0, 0, 0)
+            u.mouse_event(4, 0, 0, 0, 0)
+            time.sleep(0.5)
+            key(0x11), key(0x41), key(0x41, True), key(0x11, True)  # Ctrl+A
+            time.sleep(0.5)
+            u.PostMessageW(ctypes.c_void_p(hwnd), 0x0111, 1, 0)  # WM_COMMAND IDOK = Select Folder
+
+        threading.Thread(target=drive, daemon=True).start()
+        got = gui.pick_folders_win(int(self.app.root.wm_frame(), 16), title, start=start)
+        self.assertEqual(sorted(os.path.basename(p) for p in got), ["A", "B b"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -11,7 +11,11 @@ Strips metadata (EXIF, GPS, XMP, IPTC, comments, C2PA content credentials) from 
 1. **Tải bộ cài**: mở trang [Releases mới nhất](https://github.com/thientrile/exif-remover/releases/latest), bấm vào tệp `ExifRemover-Setup-x.y.z.exe` (x.y.z là số phiên bản, ví dụ `0.2.0`) để tải về.
 2. **Chạy bộ cài**: mở tệp vừa tải. Windows có thể hiện cảnh báo xanh *"Windows protected your PC"* vì bộ cài chưa được ký số: bấm **More info** rồi bấm **Run anyway**.
 3. **Cài đặt**: bấm **Next** / **Install** đến khi xong (không cần quyền admin). Sau đó mở ứng dụng từ menu **Start**, tìm **Exif Remover**.
-4. **Thêm tệp**: kéo thả ảnh, video, PDF hoặc cả thư mục vào khung trên cùng, hoặc bấm **Chọn tệp** / **Chọn thư mục**. Có thể thêm nhiều lần. Muốn bỏ tệp nào thì chọn dòng đó rồi bấm **Bỏ tệp đã chọn** (hoặc **Xoá danh sách** để làm lại từ đầu).
+4. **Thêm tệp**: kéo thả ảnh, video, PDF hoặc cả thư mục vào khung trên cùng, hoặc bấm **Chọn tệp** / **Chọn thư mục**. Có thể thêm nhiều lần, danh sách cộng dồn (tệp trùng tự bỏ qua):
+   - **Nhiều thư mục cùng lúc**: trong hộp **Chọn thư mục**, giữ **Ctrl** và bấm từng thư mục (hoặc **Shift** để chọn một dãy) rồi bấm **Select Folder**.
+   - Hoặc trong File Explorer chọn nhiều thư mục rồi kéo thả cả nhóm vào cửa sổ.
+   - Hoặc bấm **Chọn thư mục** nhiều lần, mỗi lần một thư mục.
+   - Thư mục sao lưu (`..._backup-NĂM-THÁNG-NGÀY`) luôn bị bỏ qua, kèm cảnh báo. Muốn bỏ tệp nào thì chọn dòng đó rồi bấm **Bỏ tệp đã chọn** (hoặc **Xoá danh sách** để làm lại từ đầu).
 5. **Xem metadata (tuỳ chọn)**: chọn một tệp rồi bấm **Xem metadata** (hoặc nhấp đúp) để xem tệp đang chứa thông tin gì; gõ vào ô tìm, ví dụ `GPS` hay `Date`. Chỉ xem, không sửa.
 6. **Giữ công tắc "Tạo bản sao lưu trước khi xoá (khuyên dùng)" đang bật** (mặc định đã bật). Trước khi xoá, ứng dụng sao chép nguyên thư mục ra một bản dự phòng bên cạnh.
 7. **Bấm Xoá metadata**. Thanh tiến trình chạy, cột **Trạng thái** của từng tệp đổi từ **Chờ** sang **✓ Đã xoá** (hoặc **✗ Lỗi**), cột **Metadata** cho biết số thẻ trước → sau. Tệp được làm sạch ngay tại chỗ (giữ nguyên tên và vị trí).
@@ -34,7 +38,7 @@ Lưu ý: chỉ thư mục (thêm bằng kéo thả hoặc **Chọn thư mục**)
 
 1. Download `ExifRemover-Setup-<version>.exe` from [Releases](https://github.com/thientrile/exif-remover/releases/latest) and run it. It installs for your user only (no admin) and adds a Start menu entry; uninstall from Settings → Apps.
 2. The installer is not code-signed, so Windows SmartScreen will warn "Windows protected your PC": click **More info** → **Run anyway**.
-3. Drop files or folders on the window (or **Chọn tệp** / **Chọn thư mục**), keep **Tạo bản sao lưu trước khi xoá** on, press **Xoá metadata**. Each row shows its status and tag count before → after; the result card shows the backup folder. **Xem metadata** shows a file's tags (read-only, searchable). exiftool, ffmpeg and qpdf are bundled.
+3. Drop files or folders on the window (or **Chọn tệp** / **Chọn thư mục**, which takes several folders with Ctrl/Shift; every pick adds to the list), keep **Tạo bản sao lưu trước khi xoá** on, press **Xoá metadata**. Each row shows its status and tag count before → after; the result card shows the backup folder. **Xem metadata** shows a file's tags (read-only, searchable). exiftool, ffmpeg and qpdf are bundled.
 4. **Updates**: the app checks GitHub Releases on start (can be turned off). When you click **Cập nhật ngay** it downloads the new installer from this repository's release, verifies it against the release's `SHA256SUMS.txt`, installs it silently for your user and restarts. **Network use**: only that update check and download; cleaning is fully offline and your files are never uploaded. The request sends only a generic `ExifRemover/<version>` user agent.
 
 ## CLI (Linux / WSL)

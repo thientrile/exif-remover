@@ -2,6 +2,10 @@
 
 The section for a version is used as its release notes and shown in the in-app update dialog.
 
+## v0.2.3
+
+- **Chọn thư mục** chọn được nhiều thư mục một lần: giữ Ctrl (hoặc Shift) khi bấm. Mỗi lần chọn hay kéo thả đều cộng thêm vào danh sách, tệp trùng tự bỏ qua.
+
 ## v0.2.2
 
 - Sửa lỗi: ảnh JPEG bị đặt đuôi .png (hay ngược lại) trước đây báo "✗ Lỗi" cho mọi tệp. Nay nhận đúng định dạng thật, xoá metadata và giữ nguyên tên tệp. Cột Loại ghi rõ, ví dụ "JPEG (đuôi .png)".

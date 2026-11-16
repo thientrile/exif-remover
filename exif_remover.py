@@ -16,7 +16,7 @@ import time
 import uuid
 from datetime import date
 
-__version__ = "0.2.2"  # single source: GUI, installer (CI reads it) and the release tag must match
+__version__ = "0.2.3"  # single source: GUI, installer (CI reads it) and the release tag must match
 
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif", ".avif", ".tif", ".tiff", ".gif"}
 VIDEO_EXT = {".mp4", ".mov", ".m4v"}
