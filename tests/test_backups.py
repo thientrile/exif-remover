@@ -1,6 +1,8 @@
 import os
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from datetime import date
 from unittest import mock
@@ -88,6 +90,24 @@ class BackupTrackingTests(unittest.TestCase):
         b = self.folder("r_backup-2026-11-01")
         REAL_RECYCLE(b)
         self.assertFalse(os.path.exists(b))
+
+    def test_record_during_listing_is_not_lost(self):
+        a, b = self.folder("a_backup-2026-11-01"), self.folder("b_backup-2026-11-01")
+        backups.record(a, "a")
+        real_load, t = backups._load, []
+
+        def slow_load():  # a run records b while the list is being read
+            got = real_load()
+            if not t:
+                t.append(threading.Thread(target=backups.record, args=(b, "b")))
+                t[0].start()
+                time.sleep(0.2)
+            return got
+
+        with mock.patch.object(backups, "_load", slow_load):
+            backups.listed()
+        t[0].join()
+        self.assertEqual(sorted(e["path"] for e in backups.listed()), [a, b])
 
     def test_human(self):
         self.assertEqual(backups.human(512), "512 B")

@@ -4,12 +4,15 @@ import json
 import os
 import shutil
 import sys
+import threading
 from datetime import date, timedelta
 
 import exif_remover as er
 import updater
 
 FILE = os.path.join(os.path.dirname(updater.SETTINGS), "backups.json")
+# The run worker records while the UI lists/deletes: every load-modify-save holds this lock, or one write is lost.
+LOCK = threading.Lock()
 
 
 def _key(path):
@@ -35,7 +38,8 @@ def _save(entries):
 
 
 def record(path, src):
-    _save(_load() + [{"path": path, "src": src, "created": date.today().isoformat()}])
+    with LOCK:
+        _save(_load() + [{"path": path, "src": src, "created": date.today().isoformat()}])
 
 
 def deletable(path):
@@ -59,11 +63,12 @@ def size(path):
 def listed():
     """Recorded backups that still exist and match the pattern; drops the rest from the file."""
     keep, seen = [], set()
-    for e in _load():
-        if deletable(e["path"]) and _key(e["path"]) not in seen:
-            seen.add(_key(e["path"]))
-            keep.append(e)
-    _save(keep)
+    with LOCK:
+        for e in _load():
+            if deletable(e["path"]) and _key(e["path"]) not in seen:
+                seen.add(_key(e["path"]))
+                keep.append(e)
+        _save(keep)
     return [{**e, "src_exists": os.path.isdir(e.get("src") or "")} for e in keep]
 
 
@@ -112,5 +117,6 @@ def delete(paths):
         except OSError as e:
             errors.append((p, str(e)))
     gone = {_key(p) for p in done}
-    _save([e for e in _load() if _key(e["path"]) not in gone])
+    with LOCK:
+        _save([e for e in _load() if _key(e["path"]) not in gone])
     return done, errors
