@@ -32,6 +32,9 @@ class GuiTests(unittest.TestCase):
         # the background tag counter may still hold a file open on Windows when a test ends
         self.tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         self.d = os.path.join(self.tmp.name, "photos")
+        p = mock.patch.object(gui.bk, "FILE", os.path.join(self.tmp.name, "cfg", "backups.json"))
+        p.start()
+        self.addCleanup(p.stop)
         for name in ("a.jpg", "b.jpg", "c.jpg", "sub/jpeg named.png", "old_backup-2026-01-01/x.jpg"):
             jpg(os.path.join(self.d, name))
         self.app = gui.App([self.d], demo=True)
@@ -103,6 +106,33 @@ class GuiTests(unittest.TestCase):
             self.spin(lambda: not self.app.running)
         self.assertEqual(set(self.app.reasons.values()), {"boom reason"})
         self.assertIn("rê chuột", self.app.card_text.cget("text"))
+
+    def test_clean_run_backup_deletable_from_card_and_list(self):
+        self.app.start()
+        self.spin(lambda: not self.app.running)
+        [backup] = [e["path"] for e in gui.bk.listed()]
+        self.assertTrue(backup.startswith(self.d + "_backup-"))
+        self.assertEqual(self.app.card_del.cget("state"), "normal")
+        win = self.app.show_backups()
+        tree = [w for w in win.winfo_children() for w in w.winfo_children() if isinstance(w, gui.ttk.Treeview)][0]
+        self.assertEqual(list(tree.get_children()), [backup])
+        win.destroy()
+        with mock.patch.object(gui.messagebox, "askyesno", return_value=False) as ask:
+            self.app.card_del.invoke()
+        self.assertIn("(5 tệp", ask.call_args[0][1])  # the whole folder is copied, incl. the old backup inside
+        self.assertTrue(os.path.isdir(backup))  # said no: kept
+        with mock.patch.object(gui.messagebox, "askyesno", return_value=True), \
+                mock.patch.object(gui.bk, "_recycle", side_effect=shutil.rmtree):
+            self.app.card_del.invoke()
+        self.assertFalse(os.path.exists(backup))
+        self.assertEqual(self.app.card_del.cget("state"), "disabled")
+        self.assertEqual(gui.bk.listed(), [])
+
+    def test_failed_run_keeps_backup_undeletable(self):
+        with mock.patch.object(er, "clean_file", side_effect=RuntimeError("boom")):
+            self.app.start()
+            self.spin(lambda: not self.app.running)
+        self.assertEqual(self.app.card_del.cget("state"), "disabled")
 
     def test_close_during_run_asks_and_stops(self):
         self.app.backup.set(False)

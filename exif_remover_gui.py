@@ -10,6 +10,7 @@ from tkinter import filedialog, font as tkfont, messagebox, ttk
 
 import customtkinter as ctk
 
+import backups as bk
 import exif_remover as er
 import updater
 
@@ -172,6 +173,8 @@ class App:
         root.after(100, self.pump)
         if not demo and self.settings["check_updates"]:
             self.check_updates(manual=False)
+        if not demo and self.settings.get("auto_clean_days"):
+            root.after(800, self.offer_old_cleanup)
 
     def font(self, size=13, weight="normal"):
         return ctk.CTkFont(family=App.family, size=size, weight=weight)
@@ -264,6 +267,8 @@ class App:
         self.card_tip = Tooltip(self.card_text)
         self.card_btn = self.secondary(self.card, "Mở thư mục sao lưu", None, 160)
         self.card_btn_tip = Tooltip(self.card_btn)
+        self.card_del = self.secondary(self.card, "Xoá bản sao lưu", None, 140)
+        self.card_del_tip = Tooltip(self.card_del)
 
         foot = ctk.CTkFrame(root, fg_color="transparent")
         foot.grid(row=7, column=0, sticky="ew", pady=(12, 0), **pad)
@@ -271,6 +276,7 @@ class App:
                 "text_color": MUTED, "font": self.font(12)}
         self.log_btn = ctk.CTkButton(foot, text="▸  Chi tiết", width=90, command=self.toggle_log, **link)
         self.log_btn.pack(side="left")
+        ctk.CTkButton(foot, text="Bản sao lưu", width=100, command=self.show_backups, **link).pack(side="left", padx=(8, 0))
         ctk.CTkLabel(foot, text=f"Phiên bản {er.__version__}", text_color=MUTED, font=self.font(12)).pack(side="right")
         ctk.CTkButton(foot, text="Kiểm tra cập nhật", width=120, command=lambda: self.check_updates(manual=True),
                       **link).pack(side="right", padx=(0, 12))
@@ -505,6 +511,7 @@ class App:
         try:
             for d in folders:
                 backups.append(er.backup_dir(d, self.stop))
+                bk.record(backups[-1], d)
                 post(lambda b=backups[-1]: self.write(f"BACKUP {b}  ({er.count_files(b)} tệp)\n"))
         except er.Stopped:
             for b in backups:  # nothing was cleaned, so these copies are not needed
@@ -587,9 +594,16 @@ class App:
         self.card_tip.text = self.card_btn_tip.text = "\n".join(backups)
         if backups:
             self.card_btn.configure(command=lambda: open_folder(backups[0]))
-            self.card_btn.grid(row=0, column=1, rowspan=2, padx=16, pady=12)
+            self.card_btn.grid(row=0, column=1, rowspan=2, padx=(16, 0), pady=12)
+            # only after a clean run: if any file failed or the run stopped, the backup is the only good copy
+            self.card_del.configure(state="normal" if good else "disabled",
+                                    command=lambda: self.delete_backups(backups) and self.card_del.configure(state="disabled"))
+            self.card_del_tip.text = ("Chuyển bản sao lưu của lần chạy này vào Thùng rác" if good else
+                                      "Chỉ xoá được khi mọi tệp đã xoá metadata thành công")
+            self.card_del.grid(row=0, column=2, rowspan=2, padx=16, pady=12)
         else:
             self.card_btn.grid_forget()
+            self.card_del.grid_forget()
         self.card.grid(row=6, column=0, sticky="ew", padx=20, pady=(14, 0))
         self.write(f"{'OK' if good else 'STOPPED' if stopped else 'FAILED'}: {ok}/{total} cleaned. Backup: {'; '.join(backups) or 'none'}\n")
         if self.pending_update:
@@ -597,6 +611,115 @@ class App:
             self.offer_update(info)
         if self.on_finish:
             self.on_finish()
+
+    # ---------- backups ----------
+    def delete_backups(self, paths, title="Xoá bản sao lưu"):
+        """Confirm (path, file count, size), then recycle. Returns the folders deleted."""
+        lines, files, total = [], 0, 0
+        for p in paths:
+            n, size = bk.size(p)
+            files, total = files + n, total + size
+            lines.append(f"{er.to_windows(p)}  ({n} tệp, {bk.human(size)})")
+        where = ("Các thư mục sẽ được chuyển vào Thùng rác (khôi phục được)." if sys.platform == "win32"
+                 else "Các thư mục sẽ bị xoá vĩnh viễn.")
+        shown = lines[:12] + ([f"… và {len(lines) - 12} thư mục khác"] if len(lines) > 12 else [])
+        if not messagebox.askyesno(title, f"Xoá {len(paths)} bản sao lưu ({files} tệp, {bk.human(total)})?\n\n" +
+                                   "\n".join(shown) + f"\n\n{where}", icon="warning", parent=self.root):
+            return []
+        done, errors = bk.delete(paths)
+        for p in done:
+            self.write(f"Đã xoá bản sao lưu {p}\n")
+        if errors:
+            messagebox.showerror(title, "Không xoá được:\n" + "\n".join(f"{er.to_windows(p)}: {m}" for p, m in errors),
+                                 parent=self.root)
+        return done
+
+    def offer_old_cleanup(self):
+        days = self.settings.get("auto_clean_days", 0)
+        old = [e["path"] for e in bk.older_than(days)] if days else []
+        if old and not self.running:
+            self.delete_backups(old, f"Bản sao lưu cũ hơn {days} ngày")
+
+    def show_backups(self):
+        win = ctk.CTkToplevel(self.root)
+        win.title("Bản sao lưu")
+        win.geometry("860x480")
+        win.configure(fg_color=("#f6f7f9", "#111318"))
+        win.transient(self.root)
+        ctk.CTkLabel(win, text="Bản sao lưu do ứng dụng tạo", font=self.font(16, "bold")).pack(anchor="w", padx=16, pady=(16, 0))
+        ctk.CTkLabel(win, text="Chỉ liệt kê các thư mục ..._backup-NĂM-THÁNG-NGÀY mà ứng dụng này đã tạo.",
+                     text_color=MUTED, font=self.font(12)).pack(anchor="w", padx=16, pady=(0, 8))
+        frame = ctk.CTkFrame(win, corner_radius=8, border_width=1, border_color=("#e5e7eb", "#2a2f37"),
+                             fg_color=("white", "#161a20"))
+        frame.pack(fill="both", expand=True, padx=16)
+        tree = ttk.Treeview(frame, columns=("p", "d", "s", "src"), show="headings", style="App.Treeview",
+                            selectmode="extended")
+        for col, text, width in (("p", "Thư mục", 430), ("d", "Ngày tạo", 100), ("s", "Dung lượng", 140),
+                                 ("src", "Thư mục gốc", 110)):
+            tree.heading(col, text=text, anchor="w")
+            tree.column(col, width=width, anchor="w", stretch=col == "p")
+        tree.tag_configure("stripe", background=self.tree_tags["stripe"])
+        scroll = ctk.CTkScrollbar(frame, command=tree.yview)
+        tree.configure(yscrollcommand=scroll.set)
+        tree.pack(side="left", fill="both", expand=True, padx=(2, 0), pady=2)
+        scroll.pack(side="right", fill="y", pady=4)
+        tip, tip_row = Tooltip(tree), [None]
+
+        def hover(e):
+            iid = tree.identify_row(e.y)
+            if iid != tip_row[0]:
+                tip_row[0], tip.text = iid, er.to_windows(iid) if iid else ""
+                tip.hide(None)
+                tip.show(None)
+        tree.bind("<Motion>", hover, add="+")
+
+        def fill():
+            tree.delete(*tree.get_children())
+            # shortcut: sizes are summed on the UI thread; fine for photo folders, thread it if lists get huge
+            for i, e in enumerate(bk.listed()):
+                n, size = bk.size(e["path"])
+                tree.insert("", "end", iid=e["path"], tags=("stripe",) if i % 2 else (), values=(
+                    shorten(er.to_windows(e["path"]), 60), e.get("created", "?"), f"{bk.human(size)} · {n} tệp",
+                    "còn" if e["src_exists"] else "không còn"))
+            empty.configure(text="" if tree.get_children() else "Chưa có bản sao lưu nào.")
+
+        def delete():
+            sel = list(tree.selection())
+            if not sel:
+                messagebox.showinfo("Bản sao lưu", "Chọn bản sao lưu cần xoá trước.", parent=win)
+                return
+            self.delete_backups(sel)
+            fill()
+
+        btns = ctk.CTkFrame(win, fg_color="transparent")
+        btns.pack(fill="x", padx=16, pady=12)
+        empty = ctk.CTkLabel(btns, text="", text_color=MUTED, font=self.font(12))
+        empty.pack(side="left")
+        ctk.CTkButton(btns, text="Xoá", width=100, height=32, corner_radius=6, fg_color=STOP, hover_color=STOP_HOVER,
+                      font=self.font(13, "bold"), command=delete).pack(side="right")
+        self.secondary(btns, "Mở thư mục", lambda: [open_folder(p) for p in tree.selection()[:1]], 100).pack(side="right", padx=8)
+        self.secondary(btns, "Chọn tất cả", lambda: tree.selection_set(tree.get_children()), 100).pack(side="right")
+
+        auto = ctk.CTkFrame(win, fg_color="transparent")
+        auto.pack(fill="x", padx=16, pady=(0, 14))
+        days = self.settings.get("auto_clean_days", 0)
+        on = ctk.BooleanVar(value=bool(days))
+        n = ctk.StringVar(value=str(days or 30))
+
+        def save(*_):
+            v = n.get().strip()
+            self.settings["auto_clean_days"] = int(v) if on.get() and v.isdigit() and int(v) > 0 else 0
+            updater.save_settings(self.settings)
+        ctk.CTkCheckBox(auto, text="Khi mở ứng dụng, đề nghị xoá bản sao lưu cũ hơn", variable=on, command=save,
+                        checkbox_width=16, checkbox_height=16, corner_radius=4, border_width=1, fg_color=ACCENT,
+                        font=self.font(12)).pack(side="left")
+        entry = ctk.CTkEntry(auto, textvariable=n, width=50, height=26, font=self.font(12))
+        entry.pack(side="left", padx=6)
+        entry.bind("<KeyRelease>", save)
+        ctk.CTkLabel(auto, text="ngày (luôn hỏi trước khi xoá)", text_color=MUTED, font=self.font(12)).pack(side="left")
+        fill()
+        win.after(150, win.lift)
+        return win
 
     # ---------- log ----------
     def write(self, text):

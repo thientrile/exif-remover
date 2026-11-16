@@ -1,5 +1,5 @@
 """Windows only: run the GUI on demo files in C:\\demo\\photos and save PNGs of the metadata viewer and the
-finished main window into the folder given as argument."""
+finished main window and the backups list into the folder given as argument."""
 import ctypes
 import ctypes.wintypes
 import os
@@ -61,8 +61,12 @@ if __name__ == "__main__":
 
     def run():
         app.on_finish = lambda: root.after(1200, lambda: (app.tree.selection_set(()), capture(root, "screenshot.png"),
-                                                          root.destroy()))
+                                                          root.after(300, show_backups)))
         app.start()
+
+    def show_backups():
+        win = app.show_backups()
+        root.after(1500, lambda: (capture(win, "backups.png"), root.destroy()))
 
     root.after(3000, show_metadata)
     root.mainloop()

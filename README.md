@@ -22,9 +22,13 @@ Strips metadata (EXIF, GPS, XMP, IPTC, comments, C2PA content credentials) from 
 8. **Xem kết quả** ở thẻ cuối:
    - Thẻ xanh **✓ Đã xoá metadata 5/5 tệp**: tất cả đã sạch và đã được kiểm tra lại.
    - Thẻ đỏ **✗ Đã xoá 4/5 tệp**: có tệp lỗi, tệp đó được giữ nguyên như cũ; bấm **▸ Chi tiết** để xem lý do.
-   - Dòng **Bản sao lưu** cho biết thư mục dự phòng, tên dạng `<tên thư mục>_backup-NĂM-THÁNG-NGÀY` (ví dụ chọn `C:\demo\photos` thì là `C:\demo\photos_backup-2026-11-15`). Bấm **Mở thư mục sao lưu** để mở. Kiểm tra ảnh đã ổn thì có thể xoá thư mục dự phòng này cho nhẹ máy.
-9. **Cập nhật**: khi có bản mới, ứng dụng hỏi **Có bản mới vX.Y.Z** kèm ghi chú. Bấm **Cập nhật ngay** thì ứng dụng tải bộ cài từ trang GitHub này, kiểm tra mã SHA256, cài đè rồi tự mở lại; bấm **Để sau** để bỏ qua. Không bao giờ tự cài khi bạn chưa bấm. Có thể tắt **Tự kiểm tra cập nhật khi mở** hoặc bấm **Kiểm tra cập nhật** ở góc dưới.
-10. **Gỡ cài đặt**: **Settings** → **Apps** → **Installed apps**, tìm **Exif Remover**, bấm **...** → **Uninstall**. Các tệp đã làm sạch và bản sao lưu không bị xoá.
+   - Dòng **Bản sao lưu** cho biết thư mục dự phòng, tên dạng `<tên thư mục>_backup-NĂM-THÁNG-NGÀY` (ví dụ chọn `C:\demo\photos` thì là `C:\demo\photos_backup-2026-11-15`). Bấm **Mở thư mục sao lưu** để mở.
+   - Kiểm tra ảnh đã ổn thì bấm **Xoá bản sao lưu** để chuyển thư mục dự phòng vào **Thùng rác** (Recycle Bin, khôi phục được). Ứng dụng hỏi lại, kèm đường dẫn, số tệp và dung lượng. Nút này chỉ bấm được khi mọi tệp đều xoá thành công; nếu có tệp lỗi hay đã bấm **Dừng** thì bản sao lưu là bản tốt duy nhất nên được giữ lại.
+9. **Dọn bản sao lưu cũ**: bấm **Bản sao lưu** ở góc dưới bên trái. Cửa sổ liệt kê các bản sao lưu do chính ứng dụng tạo: thư mục, ngày tạo, dung lượng, thư mục gốc còn hay không. Chọn một hoặc nhiều dòng (giữ Ctrl), hoặc bấm **Chọn tất cả**, rồi bấm **Xoá** (vào Thùng rác, có hỏi lại).
+   - Ứng dụng chỉ xoá thư mục nó tự tạo và còn đúng tên `..._backup-NĂM-THÁNG-NGÀY`; thư mục khác không bao giờ bị đụng tới. Bản sao lưu đã bị xoá hoặc đổi tên bằng tay sẽ tự biến khỏi danh sách.
+   - Tuỳ chọn **Khi mở ứng dụng, đề nghị xoá bản sao lưu cũ hơn N ngày** (mặc định tắt): bật lên thì mỗi lần mở, nếu có bản cũ hơn N ngày, ứng dụng hỏi trước khi xoá, không bao giờ tự xoá âm thầm.
+10. **Cập nhật**: khi có bản mới, ứng dụng hỏi **Có bản mới vX.Y.Z** kèm ghi chú. Bấm **Cập nhật ngay** thì ứng dụng tải bộ cài từ trang GitHub này, kiểm tra mã SHA256, cài đè rồi tự mở lại; bấm **Để sau** để bỏ qua. Không bao giờ tự cài khi bạn chưa bấm. Có thể tắt **Tự kiểm tra cập nhật khi mở** hoặc bấm **Kiểm tra cập nhật** ở góc dưới.
+11. **Gỡ cài đặt**: **Settings** → **Apps** → **Installed apps**, tìm **Exif Remover**, bấm **...** → **Uninstall**. Các tệp đã làm sạch và bản sao lưu không bị xoá.
 
 Lưu ý: chỉ thư mục (thêm bằng kéo thả hoặc **Chọn thư mục**) mới được sao lưu; tệp lẻ thì không. Mạng chỉ được dùng để kiểm tra và tải bản cập nhật từ GitHub; tệp của bạn không bao giờ được gửi đi.
 
@@ -38,7 +42,7 @@ Lưu ý: chỉ thư mục (thêm bằng kéo thả hoặc **Chọn thư mục**)
 
 1. Download `ExifRemover-Setup-<version>.exe` from [Releases](https://github.com/thientrile/exif-remover/releases/latest) and run it. It installs for your user only (no admin) and adds a Start menu entry; uninstall from Settings → Apps.
 2. The installer is not code-signed, so Windows SmartScreen will warn "Windows protected your PC": click **More info** → **Run anyway**.
-3. Drop files or folders on the window (or **Chọn tệp** / **Chọn thư mục**, which takes several folders with Ctrl/Shift; every pick adds to the list), keep **Tạo bản sao lưu trước khi xoá** on, press **Xoá metadata**. Each row shows its status and tag count before → after; the result card shows the backup folder. **Xem metadata** shows a file's tags (read-only, searchable). exiftool, ffmpeg and qpdf are bundled.
+3. Drop files or folders on the window (or **Chọn tệp** / **Chọn thư mục**, which takes several folders with Ctrl/Shift; every pick adds to the list), keep **Tạo bản sao lưu trước khi xoá** on, press **Xoá metadata**. Each row shows its status and tag count before → after; the result card shows the backup folder and, after a fully successful run, **Xoá bản sao lưu** (to the Recycle Bin). The **Bản sao lưu** footer button lists the backups the app made (recorded in `%APPDATA%\ExifRemover\backups.json`) to delete them. **Xem metadata** shows a file's tags (read-only, searchable). exiftool, ffmpeg and qpdf are bundled.
 4. **Updates**: the app checks GitHub Releases on start (can be turned off). When you click **Cập nhật ngay** it downloads the new installer from this repository's release, verifies it against the release's `SHA256SUMS.txt`, installs it silently for your user and restarts. **Network use**: only that update check and download; cleaning is fully offline and your files are never uploaded. The request sends only a generic `ExifRemover/<version>` user agent.
 
 ## CLI (Linux / WSL)
