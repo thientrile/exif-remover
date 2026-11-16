@@ -2,6 +2,12 @@
 
 The section for a version is used as its release notes and shown in the in-app update dialog.
 
+## v0.2.4
+
+- Nút **Xoá bản sao lưu** trên thẻ kết quả: chuyển bản sao lưu của lần chạy vào Thùng rác (khôi phục được), hỏi lại kèm đường dẫn, số tệp, dung lượng. Chỉ bấm được khi mọi tệp đều xoá thành công.
+- Nút **Bản sao lưu** ở góc dưới: xem và xoá các bản sao lưu do ứng dụng tạo (ngày tạo, dung lượng, thư mục gốc còn không). Chỉ xoá thư mục ứng dụng đã tạo và còn đúng tên `..._backup-NĂM-THÁNG-NGÀY`.
+- Tuỳ chọn (mặc định tắt): khi mở ứng dụng, đề nghị xoá bản sao lưu cũ hơn N ngày, luôn hỏi trước.
+
 ## v0.2.3
 
 - **Chọn thư mục** chọn được nhiều thư mục một lần: giữ Ctrl (hoặc Shift) khi bấm. Mỗi lần chọn hay kéo thả đều cộng thêm vào danh sách, tệp trùng tự bỏ qua.
