@@ -15,7 +15,7 @@ import sys
 import uuid
 from datetime import date
 
-__version__ = "0.2.1"  # single source: GUI, installer (CI reads it) and the release tag must match
+__version__ = "0.2.2"  # single source: GUI, installer (CI reads it) and the release tag must match
 
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif", ".avif", ".tif", ".tiff", ".gif"}
 VIDEO_EXT = {".mp4", ".mov", ".m4v"}
@@ -65,18 +65,38 @@ def to_windows(path):
 BACKUP_DIR = re.compile(r"_backup-\d{4}-\d{2}-\d{2}(-\d+)?$")
 
 
+def in_backup(path):
+    """True if path is, or lies inside, a <folder>_backup-YYYY-MM-DD folder: those hold the only originals."""
+    return any(BACKUP_DIR.search(part) for part in os.path.normpath(os.path.abspath(path)).split(os.sep))
+
+
+class Stopped(Exception):
+    pass
+
+
 def count_files(d):
     return sum(len(names) for _, _, names in os.walk(d))
 
 
-def backup_dir(src):
-    """cp -a src to a sibling <src>_backup-YYYY-MM-DD[-N]; raise if file counts differ."""
+def backup_dir(src, stop=None):
+    """cp -a src to a sibling <src>_backup-YYYY-MM-DD[-N]; raise if file counts differ.
+    stop: threading.Event; when set mid-copy the partial backup is removed and Stopped is raised."""
     src = os.path.normpath(os.path.realpath(src))
     base = f"{src}_backup-{date.today().isoformat()}"
     dst, n = base, 2
     while os.path.exists(dst):
         dst, n = f"{base}-{n}", n + 1
-    shutil.copytree(src, dst, symlinks=True)
+
+    def copy(s, d):
+        if stop is not None and stop.is_set():
+            raise Stopped()
+        return shutil.copy2(s, d)
+
+    try:
+        shutil.copytree(src, dst, symlinks=True, copy_function=copy)
+    except BaseException:
+        shutil.rmtree(dst, ignore_errors=True)
+        raise
     got, want = count_files(dst), count_files(src)
     if got != want:
         raise RuntimeError(f"backup {dst} has {got} files, source has {want}")
@@ -100,12 +120,37 @@ def run(cmd):
     return p.stdout
 
 
+def read_tags_many(paths):
+    """One exiftool call for many files: [[(group, name, value), ...] per path], duplicates kept."""
+    ee = ["-ee"] if any(os.path.splitext(p)[1].lower() in VIDEO_EXT for p in paths) else []
+    p = call(["exiftool", "-j", "-G1", "-a", *ee, *paths])
+    try:  # exit code 1 only means some file had an Error tag; that file's JSON still says why
+        found = json.loads(p.stdout, object_pairs_hook=lambda kv: kv)
+    except ValueError:
+        raise RuntimeError(f"exiftool failed: {(p.stderr or p.stdout).strip()[:300]}")
+    if len(found) != len(paths):
+        raise RuntimeError(f"exiftool failed: {p.stderr.strip()[:300]}")
+    return [[(*k.split(":", 1), v) for k, v in pairs if ":" in k] for pairs in found]
+
+
 def read_tags(path):
-    """[(group, name, value), ...] from exiftool, duplicates kept."""
-    ee = ["-ee"] if os.path.splitext(path)[1].lower() in VIDEO_EXT else []
-    out = run(["exiftool", "-j", "-G1", "-a", *ee, path])
-    pairs = json.loads(out, object_pairs_hook=lambda kv: kv)[0]
-    return [(*k.split(":", 1), v) for k, v in pairs if ":" in k]
+    return read_tags_many([path])[0]
+
+
+SAME_EXT = {".jpeg": ".jpg", ".tiff": ".tif", ".heif": ".heic"}
+
+
+def real_ext(path, tags):
+    """Extension the content really has (exiftool FileTypeExtension), e.g. .jpg for a JPEG named x.png.
+    The name's own extension when they agree or the type is unknown."""
+    ext = os.path.splitext(path)[1].lower()
+    t = next((str(v).lower() for _, n, v in tags if n == "FileTypeExtension"), "")
+    t = "." + t if t else ext
+    return ext if SAME_EXT.get(t, t) == SAME_EXT.get(ext, ext) else t
+
+
+def file_type(tags):
+    return next((str(v) for _, n, v in tags if n == "FileType"), "")
 
 
 def meta_count(tags):
@@ -144,7 +189,7 @@ def verify(path):
     if errors:
         raise RuntimeError(f"unreadable output: {errors[0]}")
     bad = leftovers(tags)
-    if path.lower().endswith(".png"):
+    if path.lower().endswith(".png"):  # clean_file names the temp by real type, so this is a real PNG
         bad += png_extra_chunks(path)
     if bad:
         raise RuntimeError("metadata left: " + ", ".join(sorted(set(bad))[:10]))
@@ -175,8 +220,7 @@ def clean_pdf(src, dst):
             os.remove(mid)
 
 
-def engine_for(path):
-    ext = os.path.splitext(path)[1].lower()
+def engine_for(ext):
     if ext in IMAGE_EXT:
         return clean_image
     if ext in VIDEO_EXT:
@@ -187,18 +231,31 @@ def engine_for(path):
 def clean_file(path):
     """Clean one file in place. Returns (tags_before, tags_after); raises on failure, original untouched."""
     path = os.path.realpath(path)
-    before = meta_count(read_tags(path))
+    tags = read_tags(path)
+    errors = [v for _, n, v in tags if n == "Error"]
+    if errors:
+        raise RuntimeError(f"unreadable: {errors[0]}")
+    before = meta_count(tags)
+    # The tools pick the format from the extension: a JPEG named .png must be handled as .jpg (and keep its name).
+    ext = real_ext(path, tags)
+    if ext not in SUPPORTED:
+        raise RuntimeError(f"content is {file_type(tags) or 'unknown'}, not {os.path.splitext(path)[1]}: unsupported")
     d, name = os.path.split(path)
-    stem, ext = os.path.splitext(name)
+    stem = os.path.splitext(name)[0]
     tmp = os.path.join(d, f".{stem}.exifclean-{uuid.uuid4().hex[:8]}{ext}")
+    # exiftool also reads the source type from its name, so a misnamed source is read via a correctly named copy.
+    src = path if ext == os.path.splitext(name)[1].lower() else tmp.replace(".exifclean-", ".exifclean-src-")
     try:
-        engine_for(path)(path, tmp)
+        if src != path:
+            shutil.copy2(path, src)
+        engine_for(ext)(src, tmp)
         after = meta_count(verify(tmp))
         shutil.copymode(path, tmp)
         os.replace(tmp, path)
     finally:
-        if os.path.exists(tmp):
-            os.remove(tmp)
+        for f in {tmp, src} - {path}:
+            if os.path.exists(f):
+                os.remove(f)
     return before, after
 
 
@@ -206,7 +263,9 @@ def collect(args):
     files, skipped = [], []
     for a in args:
         p = to_posix(a)
-        if os.path.isdir(p):
+        if in_backup(p):
+            skipped.append(a)
+        elif os.path.isdir(p):
             for root, dirs, names in os.walk(p):
                 dirs[:] = sorted(x for x in dirs if not BACKUP_DIR.search(x))
                 for n in sorted(names):
@@ -235,7 +294,7 @@ def main(argv=None):
     if not no_backup:  # shortcut: single-file inputs get no backup, only folders do
         try:
             for a in argv:
-                if os.path.isdir(to_posix(a)):
+                if os.path.isdir(to_posix(a)) and not in_backup(to_posix(a)):
                     backups.append(backup_dir(to_posix(a)))
                     print(f"BACKUP {to_windows(backups[-1])}  ({count_files(backups[-1])} files)")
         except Exception as e:
@@ -243,7 +302,7 @@ def main(argv=None):
             return 2
     files, skipped = collect(argv)
     for s in skipped:
-        print(f"SKIP   {s} (not found or unsupported type)")
+        print(f"SKIP   {s} (not found, unsupported type, or a _backup- folder)")
     ok = failed = tb = ta = 0
     for f in files:
         try:
