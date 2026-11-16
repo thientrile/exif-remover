@@ -231,6 +231,38 @@ class CleanTests(unittest.TestCase):
             self.assertEqual(sorted(os.listdir(self.d)), sorted({"jpeg as.png", name}))
         self.assert_no_temp_left()
 
+    def test_misnamed_file_in_folder_named_like_temp(self):
+        os.makedirs(self.p("x.exifclean-archive"))
+        f = self.p("x.exifclean-archive/a.png")
+        sh("ffmpeg", "-v", "error", "-f", "lavfi", "-i", "color=red:s=16x16", "-frames:v", "1", self.p("r.jpg"))
+        sh("exiftool", "-q", "-overwrite_original", "-GPSLatitude=48.8", "-GPSLatitudeRef=N", self.p("r.jpg"))
+        os.rename(self.p("r.jpg"), f)
+        er.clean_file(f)
+        self.assertNotIn("GPSLatitude", names(f))
+
+    def test_backup_never_removes_an_existing_folder(self):
+        self.make_tagged_png("in/a.png")
+        taken = self.p(f"in_backup-{er.date.today().isoformat()}")
+        os.makedirs(taken)
+        Path(taken, "keep.txt").write_text("other run")
+        with mock.patch.object(er.shutil, "copy2", side_effect=OSError("disk full")):
+            with self.assertRaises(OSError):
+                er.backup_dir(self.p("in"))
+        self.assertEqual(os.listdir(taken), ["keep.txt"])  # the other backup survives
+        self.assertEqual(sorted(os.listdir(self.d)), sorted(["in", os.path.basename(taken)]))
+
+    def test_replace_retries_while_target_locked(self):
+        Path(self.p("t"), ).write_text("new")
+        Path(self.p("f")).write_text("old")
+        real = os.replace
+        with mock.patch.object(er.os, "replace", side_effect=[PermissionError(32, "in use"), None]) as rep:
+            er.replace(self.p("t"), self.p("f"))
+        self.assertEqual(rep.call_count, 2)
+        with mock.patch.object(er.os, "replace", side_effect=PermissionError(32, "in use")):
+            with self.assertRaises(PermissionError):
+                er.replace(self.p("t"), self.p("f"), tries=2)
+        real(self.p("t"), self.p("f"))
+
     def test_already_clean_png_with_render_chunks_is_ok(self):
         f = self.p("clean.png")
         sh("ffmpeg", "-v", "error", "-f", "lavfi", "-i", "color=blue:s=16x16", "-frames:v", "1", f)

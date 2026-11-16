@@ -477,6 +477,9 @@ class App:
             self.root.destroy()
         elif messagebox.askyesno("Exif Remover", "Đang xoá metadata. Dừng sau tệp hiện tại rồi thoát?\n"
                                  "Các tệp chưa xử lý được giữ nguyên.", parent=self.root):
+            if not self.running:  # the run ended while the dialog was open
+                self.root.destroy()
+                return
             self.close_after = True
             self.request_stop()
 
