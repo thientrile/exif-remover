@@ -115,6 +115,54 @@ class GuiTests(unittest.TestCase):
         ask.assert_called_once()
         self.assertIn(gui.STOPPED, self.col("status").values())
 
+    def test_several_folders_add_up_deduped(self):
+        a, b, c = (os.path.join(self.tmp.name, n) for n in ("A", "B b", "C"))
+        for d in (a, b, c):
+            jpg(os.path.join(d, "x.jpg"))
+        jpg(os.path.join(self.tmp.name, "old_backup-2026-01-01", "y.jpg"))
+        base = len(self.app.rows)
+        with mock.patch.object(gui, "pick_folders_win", side_effect=[[a, b], [b, c]]), \
+                mock.patch.object(gui.filedialog, "askdirectory", side_effect=[a, c]):
+            self.app.pick_folder()  # several at once (Windows dialog) or one (Tk dialog elsewhere)
+            self.app.pick_folder()  # picking again adds to the list, repeats are skipped
+        want = 3 if sys.platform == "win32" else 2
+        self.assertEqual(len(self.app.rows), base + want)
+        # dropping several folders from Explorer at once: one Tcl list, names with spaces in braces
+        with mock.patch.object(gui.messagebox, "showwarning") as warn:
+            self.app.drop("{%s} %s {%s}" % (b.replace("\\", "/"), c.replace("\\", "/"),
+                                            os.path.join(self.tmp.name, "old_backup-2026-01-01").replace("\\", "/")))
+        warn.assert_called_once()
+        self.assertEqual(len(self.app.rows), base + 3)
+        self.assertEqual(len({p for p, _ in self.app.rows.values()}), len(self.app.rows))
+
+    @unittest.skipUnless(sys.platform == "win32", "Windows folder dialog")
+    def test_windows_dialog_picks_several_folders(self):
+        import ctypes
+        import threading
+        u = ctypes.windll.user32
+        u.FindWindowW.restype = u.GetDlgItem.restype = u.FindWindowExW.restype = ctypes.c_void_p
+        for n in ("A", "B b", "C"):
+            os.makedirs(os.path.join(self.tmp.name, n))
+        title = "Pick test"
+
+        def drive():  # type two names into the dialog's file name box, then press OK
+            for _ in range(200):
+                hwnd = u.FindWindowW(None, title)
+                if hwnd:
+                    break
+                time.sleep(0.05)
+            time.sleep(0.5)
+            combo = u.GetDlgItem(ctypes.c_void_p(hwnd), 1148)
+            edit = u.FindWindowExW(ctypes.c_void_p(combo), None, "ComboBox", None)
+            edit = u.FindWindowExW(ctypes.c_void_p(edit), None, "Edit", None) if edit else u.FindWindowExW(
+                ctypes.c_void_p(combo), None, "Edit", None)
+            u.SendMessageW(ctypes.c_void_p(edit), 0x000C, 0, ctypes.c_wchar_p('"A" "B b"'))  # WM_SETTEXT
+            u.PostMessageW(ctypes.c_void_p(hwnd), 0x0111, 1, 0)  # WM_COMMAND IDOK
+
+        threading.Thread(target=drive, daemon=True).start()
+        got = gui.pick_folders_win(int(self.app.root.wm_frame(), 16), title, start=self.tmp.name)
+        self.assertEqual(sorted(os.path.basename(p) for p in got), ["A", "B b"])
+
 
 if __name__ == "__main__":
     unittest.main()
