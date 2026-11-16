@@ -39,26 +39,6 @@ jobs:
       - name: Install GUI build deps
         run: pip install -r requirements-gui.txt
 
-      - name: EXPERIMENT dialog with screenshots
-        continue-on-error: true
-        run: |
-          New-Item -ItemType Directory dbg | Out-Null
-          $job = Start-Job -ScriptBlock { param($d)
-            Add-Type -AssemblyName System.Drawing, System.Windows.Forms
-            for ($i = 0; $i -lt 16; $i++) {
-              $s = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
-              $b = New-Object System.Drawing.Bitmap $s.Width, $s.Height
-              [System.Drawing.Graphics]::FromImage($b).CopyFromScreen(0, 0, 0, 0, $b.Size)
-              $b.Save("$d\shot$i.png"); Start-Sleep -Milliseconds 400 }
-          } -ArgumentList (Resolve-Path dbg).Path
-          cd tests
-          python -m unittest test_gui.GuiTests.test_windows_dialog_picks_several_folders
-          Wait-Job $job | Receive-Job
-      - uses: actions/upload-artifact@v4
-        continue-on-error: true
-        with:
-          name: dbg
-          path: dbg/*.png
       - name: GUI tests (stop, backup-folder guard, misnamed files, error reasons)
         run: python -m unittest discover -s tests -p test_gui.py -v
 

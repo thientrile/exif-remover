@@ -204,7 +204,12 @@ class GuiTests(unittest.TestCase):
             view = child(child(hwnd, "SHELLDLL_DefView"), "DirectUIHWND")
             r = ctypes.wintypes.RECT()
             u.GetWindowRect(ctypes.c_void_p(view), ctypes.byref(r))
+            # the runner's own console window may sit on top with focus; a tap of Alt lets us take the foreground
+            key(0x12), key(0x12, True)
+            u.ShowWindow(ctypes.c_void_p(hwnd), 9)  # SW_RESTORE
             u.SetForegroundWindow(ctypes.c_void_p(hwnd))
+            u.BringWindowToTop(ctypes.c_void_p(hwnd))
+            time.sleep(0.3)
             u.SetCursorPos(r.right - 30, r.bottom - 30)
             u.mouse_event(2, 0, 0, 0, 0)
             u.mouse_event(4, 0, 0, 0, 0)
