@@ -39,6 +39,18 @@ jobs:
       - name: Install GUI build deps
         run: pip install -r requirements-gui.txt
 
+      - name: EXPERIMENT failed-run then dialog
+        continue-on-error: true
+        working-directory: tests
+        run: python -m unittest test_gui.GuiTests.test_failed_run_keeps_backup_undeletable test_gui.GuiTests.test_windows_dialog_picks_several_folders
+      - name: EXPERIMENT clean-run then dialog
+        continue-on-error: true
+        working-directory: tests
+        run: python -m unittest test_gui.GuiTests.test_clean_run_backup_deletable_from_card_and_list test_gui.GuiTests.test_windows_dialog_picks_several_folders
+      - name: EXPERIMENT backup-on misnamed then dialog
+        continue-on-error: true
+        working-directory: tests
+        run: python -m unittest test_gui.GuiTests.test_stop_during_backup_removes_it test_gui.GuiTests.test_windows_dialog_picks_several_folders
       - name: GUI tests (stop, backup-folder guard, misnamed files, error reasons)
         run: python -m unittest discover -s tests -p test_gui.py -v
 
