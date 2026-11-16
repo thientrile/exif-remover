@@ -111,7 +111,7 @@ class GuiTests(unittest.TestCase):
         self.app.start()
         self.spin(lambda: not self.app.running)
         [backup] = [e["path"] for e in gui.bk.listed()]
-        self.assertTrue(backup.startswith(self.d + "_backup-"))
+        self.assertTrue(backup.startswith(os.path.realpath(self.d) + "_backup-"))  # realpath: Windows temp is an 8.3 short path
         self.assertEqual(self.app.card_del.cget("state"), "normal")
         win = self.app.show_backups()
         tree = [w for w in win.winfo_children() for w in w.winfo_children() if isinstance(w, gui.ttk.Treeview)][0]
