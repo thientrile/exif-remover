@@ -39,6 +39,9 @@ jobs:
       - name: Install GUI build deps
         run: pip install -r requirements-gui.txt
 
+      - name: GUI tests (stop, backup-folder guard, misnamed files, error reasons)
+        run: python -m unittest discover -s tests -p test_gui.py -v
+
       - name: GUI screenshots (demo folder C:\demo\photos)
         continue-on-error: true
         timeout-minutes: 4

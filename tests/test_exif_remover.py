@@ -4,6 +4,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 import zlib
 from pathlib import Path
@@ -212,6 +213,65 @@ class CleanTests(unittest.TestCase):
         with mock.patch.object(er, "HERE", self.d):
             self.assertEqual(os.path.normcase(er.tool("qpdf")), os.path.normcase(exe))
         self.assertIsNone(er.tool("no-such-tool-xyz"))
+
+    def test_wrong_extension_cleaned_by_real_type_and_keeps_name(self):
+        # JPEG saved as .png (the owner's calendar files) and PNG saved as .jpg
+        for name, color in (("jpeg as.png", "red"), ("png as.jpg", "blue")):
+            real = self.p("real" + (".jpg" if name.endswith(".png") else ".png"))
+            sh("ffmpeg", "-v", "error", "-f", "lavfi", "-i", f"color={color}:s=16x16", "-frames:v", "1", real)
+            sh("exiftool", "-q", "-overwrite_original", "-GPSLatitude=48.8", "-GPSLatitudeRef=N", "-XMP:Creator=Bob", real)
+            f = self.p(name)
+            os.rename(real, f)
+            tags = er.read_tags(f)
+            self.assertIn("GPSLatitude", {n for _, n, _ in tags})
+            self.assertEqual(er.real_ext(f, tags), os.path.splitext(real)[1])
+            er.clean_file(f)
+            self.assertTrue(os.path.isfile(f), name)
+            self.assertFalse({"GPSLatitude", "Creator"} & names(f), name)
+            self.assertEqual(sorted(os.listdir(self.d)), sorted({"jpeg as.png", name}))
+        self.assert_no_temp_left()
+
+    def test_already_clean_png_with_render_chunks_is_ok(self):
+        f = self.p("clean.png")
+        sh("ffmpeg", "-v", "error", "-f", "lavfi", "-i", "color=blue:s=16x16", "-frames:v", "1", f)
+        insert_after_ihdr(f, png_chunk(b"sRGB", b"\x00"), png_chunk(b"gAMA", struct.pack(">I", 45455)),
+                          png_chunk(b"pHYs", struct.pack(">IIB", 2835, 2835, 1)))
+        er.clean_file(f)
+        er.clean_file(f)  # second run on an already-clean file is a no-op, not an error
+        self.assertEqual(er.png_extra_chunks(f), [])
+
+    def test_backup_folders_never_collected(self):
+        today = er.date.today().isoformat()
+        f = self.make_tagged_png(f"in_backup-{today}/sub/x.png")
+        self.assertTrue(er.in_backup(f))
+        self.assertFalse(er.in_backup(self.p("in/x.png")))
+        files, skipped = er.collect([self.p(f"in_backup-{today}"), f])
+        self.assertEqual(files, [])
+        self.assertEqual(len(skipped), 2)
+        self.assertEqual(er.main([self.p(f"in_backup-{today}")]), 1)
+        self.assertTrue(er.png_extra_chunks(f))  # untouched
+        self.assertEqual(sorted(os.listdir(self.d)), [f"in_backup-{today}"])  # no backup of the backup
+
+    def test_backup_stop_removes_partial_copy(self):
+        self.make_tagged_png("in/a.png")
+        self.make_tagged_png("in/b.png")
+        stop = threading.Event()
+        real_copy = shutil.copy2
+
+        def copy_then_stop(s, d):
+            stop.set()  # pressed Stop while the first file copies
+            return real_copy(s, d)
+
+        with mock.patch.object(er.shutil, "copy2", copy_then_stop):
+            with self.assertRaises(er.Stopped):
+                er.backup_dir(self.p("in"), stop)
+        self.assertEqual(sorted(os.listdir(self.d)), ["in"])
+
+    def test_read_tags_many_matches_order(self):
+        a, b = self.make_tagged_png("m/a.png"), self.p("m/b.jpg")
+        sh("ffmpeg", "-v", "error", "-f", "lavfi", "-i", "color=red:s=16x16", "-frames:v", "1", b)
+        ta, tb = er.read_tags_many([a, b])
+        self.assertEqual((er.file_type(ta), er.file_type(tb)), ("PNG", "JPEG"))
 
     @unittest.skipIf(os.name == "nt", "WSL path mapping is off on native Windows")
     def test_windows_path(self):

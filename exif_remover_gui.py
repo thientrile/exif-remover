@@ -1,6 +1,7 @@
 """Exif Remover window (customtkinter, Vietnamese UI). With arguments it runs the CLI instead."""
 import os
 import queue
+import shutil
 import subprocess
 import sys
 import threading
@@ -19,9 +20,10 @@ except ImportError:
 
 FILETYPES = [("Ảnh, video, PDF", " ".join("*" + e for e in sorted(er.SUPPORTED))), ("Tất cả", "*.*")]
 KIND = {**{e: "Ảnh" for e in er.IMAGE_EXT}, **{e: "Video" for e in er.VIDEO_EXT}, ".pdf": "PDF"}
-WAIT, BUSY, DONE, ERR = "•  Chờ", "…  Đang xoá", "✓  Đã xoá", "✗  Lỗi"
-ACCENT, ACCENT_HOVER = "#2563eb", "#1d4ed8"
-GREEN, RED, MUTED = ("#15803d", "#4ade80"), ("#b91c1c", "#f87171"), ("#6b7280", "#9ca3af")
+WAIT, BUSY, DONE, ERR, STOPPED = "•  Chờ", "…  Đang xoá", "✓  Đã xoá", "✗  Lỗi", "■  Đã dừng"
+ACCENT, ACCENT_HOVER, STOP, STOP_HOVER = "#2563eb", "#1d4ed8", "#dc2626", "#b91c1c"
+GREEN, RED, MUTED, AMBER = ("#15803d", "#4ade80"), ("#b91c1c", "#f87171"), ("#6b7280", "#9ca3af"), ("#b45309", "#fbbf24")
+COUNT_BATCH = 8  # files per exiftool call when counting tags: one process start each, and rows fill in steadily
 
 
 def asset(name):
@@ -86,7 +88,10 @@ class App:
         """demo: light theme and no update check (screenshots); the caller drives start()."""
         self.q = queue.Queue()  # callables from worker threads, run on the UI thread
         self.rows = {}  # treeview iid -> (path, folder it was added from or None)
+        self.reasons = {}  # treeview iid -> why cleaning failed, shown in the row tooltip
         self.running = False
+        self.stop = threading.Event()
+        self.close_after = False
         self.on_finish = None
         self.pending_update = None
         self.settings = updater.load_settings()
@@ -108,6 +113,7 @@ class App:
         root.configure(fg_color=("#f6f7f9", "#111318"))
         root.grid_columnconfigure(0, weight=1)
         self.build()
+        root.protocol("WM_DELETE_WINDOW", self.close)
         self.add(initial)
         root.after(100, self.pump)
         if not demo and self.settings["check_updates"]:
@@ -177,6 +183,9 @@ class App:
         scroll.pack(side="right", fill="y", pady=4)
         self.tree.bind("<Double-1>", lambda e: self.view_selected())
         self.tree.bind("<Delete>", lambda e: self.remove())
+        self.row_tip, self.tip_iid = Tooltip(self.tree), None
+        self.tree.bind("<Motion>", self.tree_tip, add="+")
+        self.tree.bind("<Leave>", lambda e: setattr(self, "tip_iid", None), add="+")
 
         act = ctk.CTkFrame(root, fg_color="transparent")
         act.grid(row=4, column=0, sticky="ew", pady=(14, 0), **pad)
@@ -186,7 +195,7 @@ class App:
                       fg_color=("#d1d5db", "#4b5563"), font=self.font(13)).pack(side="left")
         self.run_btn = ctk.CTkButton(act, text="Xoá metadata", height=44, width=210, corner_radius=8,
                                      fg_color=ACCENT, hover_color=ACCENT_HOVER, font=self.font(16, "bold"),
-                                     command=self.start)
+                                     command=lambda: self.request_stop() if self.running else self.start())
         self.run_btn.pack(side="right")
 
         self.progress = ctk.CTkProgressBar(root, height=8, progress_color=ACCENT)
@@ -263,13 +272,17 @@ class App:
         new, skipped = [], 0
         for item in items:
             item = os.path.normpath(er.to_posix(item))
+            if er.in_backup(item):
+                messagebox.showwarning("Thư mục sao lưu", f"Bỏ qua {item}\n\nĐây là bản sao lưu (chứa tệp gốc còn "
+                                       "metadata) nên ứng dụng không xoá metadata trong đó.", parent=self.root)
+                continue
             files, bad = er.collect([item])
             skipped += len(bad)
             folder = item if os.path.isdir(item) else None
             for f in files:
                 if f not in known:
                     known.add(f)
-                    name = os.path.relpath(f, os.path.dirname(folder)) if folder else os.path.basename(f)
+                    name = shorten(os.path.relpath(f, folder) if folder else os.path.basename(f), 60)
                     ext = os.path.splitext(f)[1].lower()
                     iid = self.tree.insert("", "end", values=(name, f"{KIND[ext]} {ext[1:].upper()}", "…", WAIT))
                     self.rows[iid] = (f, folder)
@@ -282,18 +295,43 @@ class App:
         threading.Thread(target=self.count_meta, args=(new,), daemon=True).start()
 
     def count_meta(self, items):
-        for iid, f in items:
+        for i in range(0, len(items), COUNT_BATCH):
+            chunk = items[i:i + COUNT_BATCH]
             try:
-                n = str(er.meta_count(er.read_tags(f)))
-            except Exception:
-                n = "?"
-            self.q.put(lambda iid=iid, n=n: self.tree.exists(iid) and self.tree.set(iid, "meta", n))
+                found = er.read_tags_many([f for _, f in chunk])
+            except Exception:  # one unreadable file fails the batch: retry file by file
+                found = []
+                for _, f in chunk:
+                    try:
+                        found.append(er.read_tags(f))
+                    except Exception:
+                        found.append(None)
+            for (iid, f), tags in zip(chunk, found):
+                self.q.put(lambda iid=iid, f=f, tags=tags: self.show_count(iid, f, tags))
+
+    def show_count(self, iid, path, tags):
+        if not self.tree.exists(iid):
+            return
+        self.tree.set(iid, "meta", "?" if tags is None else str(er.meta_count(tags)))
+        ext = os.path.splitext(path)[1].lower()
+        if tags and er.real_ext(path, tags) != ext:  # e.g. a JPEG saved as .png
+            self.tree.set(iid, "kind", f"{er.file_type(tags)} (đuôi {ext})")
+
+    def tree_tip(self, e):
+        iid = self.tree.identify_row(e.y)
+        if iid != self.tip_iid:
+            self.tip_iid = iid
+            self.row_tip.hide(None)
+            path = self.rows.get(iid, ("",))[0]
+            self.row_tip.text = er.to_windows(path) + (f"\nLỗi: {self.reasons[iid]}" if iid in self.reasons else "")
+            self.row_tip.show(None)
 
     def remove(self):
         if not self.running:
             for iid in self.tree.selection():
                 self.tree.delete(iid)
                 del self.rows[iid]
+                self.reasons.pop(iid, None)
             self.tag_rows()
             self.refresh_count()
 
@@ -301,6 +339,7 @@ class App:
         if not self.running:
             self.tree.delete(*self.rows)
             self.rows.clear()
+            self.reasons.clear()
             self.card.grid_forget()
             self.refresh_count()
 
@@ -376,7 +415,9 @@ class App:
             messagebox.showerror("Exif Remover", "Thiếu công cụ: " + ", ".join(missing), parent=self.root)
             return
         self.running = True
-        self.run_btn.configure(state="disabled", text="Đang xoá…")
+        self.stop.clear()
+        self.reasons.clear()
+        self.run_btn.configure(text="Dừng", fg_color=STOP, hover_color=STOP_HOVER)
         self.card.grid_forget()
         self.progress.set(0)
         self.progress.grid(row=5, column=0, sticky="ew", padx=20, pady=(12, 0))
@@ -394,13 +435,22 @@ class App:
         backups = []
         try:
             for d in folders:
-                backups.append(er.backup_dir(d))
+                backups.append(er.backup_dir(d, self.stop))
                 post(lambda b=backups[-1]: self.write(f"BACKUP {b}  ({er.count_files(b)} tệp)\n"))
+        except er.Stopped:
+            for b in backups:  # nothing was cleaned, so these copies are not needed
+                shutil.rmtree(b, ignore_errors=True)
+            post(lambda: self.mark_stopped([iid for iid, _ in jobs]))
+            post(lambda: self.finish(0, len(jobs), [], stopped=True))
+            return
         except Exception as e:
             post(lambda msg=str(e): self.finish(0, 0, [], f"Sao lưu thất bại, chưa xoá tệp nào: {msg}"))
             return
         ok = 0
         for i, (iid, (path, _)) in enumerate(jobs):
+            if self.stop.is_set():  # checked between files only: a file is never left half-done
+                post(lambda rest=[j for j, _ in jobs[i:]]: self.mark_stopped(rest))
+                break
             post(lambda iid=iid: self.tree.set(iid, "status", BUSY))
             try:
                 b, a = er.clean_file(path)
@@ -408,11 +458,31 @@ class App:
                 post(lambda iid=iid, b=b, a=a, p=path: self.row_done(iid, f"{b} → {a}", DONE, "ok",
                                                                       f"OK     {b:4d} -> {a:3d}  {p}"))
             except Exception as e:
-                post(lambda iid=iid, msg=str(e), p=path: self.row_done(iid, None, ERR, "err", f"FAIL   {p}: {msg}"))
+                post(lambda iid=iid, msg=str(e), p=path: self.row_done(iid, None, ERR, "err", f"FAIL   {p}: {msg}", msg))
             post(lambda v=(i + 1) / len(jobs): self.progress.set(v))
-        post(lambda: self.finish(ok, len(jobs), backups))
+        post(lambda: self.finish(ok, len(jobs), backups, stopped=self.stop.is_set()))
 
-    def row_done(self, iid, meta, status, tag, line):
+    def request_stop(self):
+        self.stop.set()
+        self.run_btn.configure(state="disabled", text="Đang dừng…")
+
+    def mark_stopped(self, iids):
+        for iid in iids:
+            if self.tree.exists(iid):
+                self.tree.set(iid, "status", STOPPED)
+        self.write(f"Đã dừng: {len(iids)} tệp chưa xử lý, giữ nguyên.\n")
+
+    def close(self):
+        if not self.running:
+            self.root.destroy()
+        elif messagebox.askyesno("Exif Remover", "Đang xoá metadata. Dừng sau tệp hiện tại rồi thoát?\n"
+                                 "Các tệp chưa xử lý được giữ nguyên.", parent=self.root):
+            self.close_after = True
+            self.request_stop()
+
+    def row_done(self, iid, meta, status, tag, line, reason=None):
+        if reason:
+            self.reasons[iid] = reason
         if self.tree.exists(iid):
             if meta:
                 self.tree.set(iid, "meta", meta)
@@ -421,16 +491,25 @@ class App:
             self.tree.item(iid, tags=stripe + [tag])
         self.write(line + "\n")
 
-    def finish(self, ok, total, backups, fatal=None):
+    def finish(self, ok, total, backups, fatal=None, stopped=False):
         self.running = False
-        self.run_btn.configure(state="normal", text="Xoá metadata")
+        if self.close_after:
+            self.root.destroy()
+            return
+        self.run_btn.configure(state="normal", text="Xoá metadata", fg_color=ACCENT, hover_color=ACCENT_HOVER)
         self.progress.grid_forget()
-        good = not fatal and ok == total
+        good = not fatal and not stopped and ok == total
         self.card.configure(fg_color=("#f0fdf4", "#0f2a1a") if good else ("#fef2f2", "#2a1212"),
                             border_color=("#bbf7d0", "#14532d") if good else ("#fecaca", "#7f1d1d"))
-        title = fatal or (f"✓  Đã xoá metadata {ok}/{total} tệp" if good else f"✗  Đã xoá {ok}/{total} tệp")
-        self.card_title.configure(text=title, text_color=GREEN if good else RED)
-        lines = [] if good or fatal else [f"{total - ok} tệp lỗi, tệp gốc được giữ nguyên. Xem ▸ Chi tiết."]
+        if stopped:
+            self.card.configure(fg_color=("#fffbeb", "#2a2008"), border_color=("#fde68a", "#78350f"))
+        title = fatal or (f"■  Đã dừng: đã xoá {ok}/{total} tệp" if stopped else
+                          f"✓  Đã xoá metadata {ok}/{total} tệp" if good else f"✗  Đã xoá {ok}/{total} tệp")
+        self.card_title.configure(text=title, text_color=AMBER if stopped else GREEN if good else RED)
+        failed = len(self.reasons)
+        lines = [] if good or fatal else (
+            ([f"{failed} tệp lỗi (rê chuột lên dòng để xem lý do)."] if failed else []) +
+            ["Tệp chưa xoá được giữ nguyên. Xem ▸ Chi tiết."])
         lines.append("Bản sao lưu: " + ("; ".join(shorten(b) for b in backups) if backups else "không có"))
         self.card_text.configure(text="\n".join(lines))
         self.card_tip.text = self.card_btn_tip.text = "\n".join(backups)
@@ -440,7 +519,7 @@ class App:
         else:
             self.card_btn.grid_forget()
         self.card.grid(row=6, column=0, sticky="ew", padx=20, pady=(14, 0))
-        self.write(f"{'OK' if good else 'FAILED'}: {ok}/{total} cleaned. Backup: {'; '.join(backups) or 'none'}\n")
+        self.write(f"{'OK' if good else 'STOPPED' if stopped else 'FAILED'}: {ok}/{total} cleaned. Backup: {'; '.join(backups) or 'none'}\n")
         if self.pending_update:
             info, self.pending_update = self.pending_update, None
             self.offer_update(info)
