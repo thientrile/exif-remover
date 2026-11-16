@@ -138,29 +138,53 @@ class GuiTests(unittest.TestCase):
     @unittest.skipUnless(sys.platform == "win32", "Windows folder dialog")
     def test_windows_dialog_picks_several_folders(self):
         import ctypes
+        import ctypes.wintypes
         import threading
         u = ctypes.windll.user32
-        u.FindWindowW.restype = u.GetDlgItem.restype = u.FindWindowExW.restype = ctypes.c_void_p
-        for n in ("A", "B b", "C"):
-            os.makedirs(os.path.join(self.tmp.name, n))
+        u.FindWindowW.restype = ctypes.c_void_p
+        start = os.path.join(self.tmp.name, "pick")  # holds only the two folders Ctrl+A will select
+        for n in ("A", "B b"):
+            os.makedirs(os.path.join(start, n))
         title = "Pick test"
 
-        def drive():  # type two names into the dialog's file name box, then press OK
+        def child(parent, cls):  # first descendant window of a class
+            found, buf = [], ctypes.create_unicode_buffer(64)
+
+            def visit(h, _):
+                u.GetClassNameW(ctypes.c_void_p(h), buf, 64)
+                if buf.value == cls:
+                    found.append(h)
+                return not found
+
+            u.EnumChildWindows(ctypes.c_void_p(parent),
+                               ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)(visit), None)
+            return found[0] if found else None
+
+        def key(vk, up=False):
+            u.keybd_event(vk, 0, 2 if up else 0, 0)
+
+        def drive():  # like a user: click the empty part of the folder list, Ctrl+A, then OK
+            hwnd = None
             for _ in range(200):
                 hwnd = u.FindWindowW(None, title)
                 if hwnd:
                     break
                 time.sleep(0.05)
+            time.sleep(1.5)
+            view = child(child(hwnd, "SHELLDLL_DefView"), "DirectUIHWND")
+            r = ctypes.wintypes.RECT()
+            u.GetWindowRect(ctypes.c_void_p(view), ctypes.byref(r))
+            u.SetForegroundWindow(ctypes.c_void_p(hwnd))
+            u.SetCursorPos(r.right - 30, r.bottom - 30)
+            u.mouse_event(2, 0, 0, 0, 0)
+            u.mouse_event(4, 0, 0, 0, 0)
             time.sleep(0.5)
-            combo = u.GetDlgItem(ctypes.c_void_p(hwnd), 1148)
-            edit = u.FindWindowExW(ctypes.c_void_p(combo), None, "ComboBox", None)
-            edit = u.FindWindowExW(ctypes.c_void_p(edit), None, "Edit", None) if edit else u.FindWindowExW(
-                ctypes.c_void_p(combo), None, "Edit", None)
-            u.SendMessageW(ctypes.c_void_p(edit), 0x000C, 0, ctypes.c_wchar_p('"A" "B b"'))  # WM_SETTEXT
-            u.PostMessageW(ctypes.c_void_p(hwnd), 0x0111, 1, 0)  # WM_COMMAND IDOK
+            key(0x11), key(0x41), key(0x41, True), key(0x11, True)  # Ctrl+A
+            time.sleep(0.5)
+            u.PostMessageW(ctypes.c_void_p(hwnd), 0x0111, 1, 0)  # WM_COMMAND IDOK = Select Folder
 
         threading.Thread(target=drive, daemon=True).start()
-        got = gui.pick_folders_win(int(self.app.root.wm_frame(), 16), title, start=self.tmp.name)
+        got = gui.pick_folders_win(int(self.app.root.wm_frame(), 16), title, start=start)
         self.assertEqual(sorted(os.path.basename(p) for p in got), ["A", "B b"])
 
 
