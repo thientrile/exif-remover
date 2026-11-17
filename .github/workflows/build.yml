@@ -134,18 +134,26 @@ jobs:
           Write-Host "installed at $($pkg.InstallLocation); longest path $($long.FullName.Length) chars: $($long.FullName)"
           # Clean a GPS JPEG in a deep folder through the execution alias: exiftool runs from inside WindowsApps.
           $t = "tools"
-          # Fixture tools get ASCII paths (exiftool reads its arguments in the ANSI code page); the app gets ảnh.jpg.
-          $d = ("$env:RUNNER_TEMP\msix\" + ('deep folder\' * 6)).TrimEnd('\')  # a trailing \ would escape the closing quote
-          New-Item -ItemType Directory $d -Force | Out-Null
-          & "$t\ffmpeg.exe" -v error -f lavfi -i color=red:s=16x16 -frames:v 1 "$d\a.jpg"
-          & "$t\exiftool.exe" -q -overwrite_original '-GPSLatitude=48.8' '-GPSLatitudeRef=N' '-Make=Canon' "$d\a.jpg"
-          Rename-Item "$d\a.jpg" "ảnh.jpg"
+          # Fixture tools get ASCII paths (exiftool reads its arguments in the ANSI code page); the app gets
+          # Vietnamese folder + file names, which it passes to exiftool through a UTF-8 argfile.
+          $base = ("$env:RUNNER_TEMP\msix\" + ('deep folder\' * 6)).TrimEnd('\')  # a trailing \ would escape the closing quote
+          New-Item -ItemType Directory "$base\a" -Force | Out-Null
+          & "$t\ffmpeg.exe" -v error -f lavfi -i color=red:s=16x16 -frames:v 1 "$base\a\a.jpg"
+          & "$t\exiftool.exe" -q -overwrite_original '-GPSLatitude=48.8' '-GPSLatitudeRef=N' '-Make=Canon' "$base\a\a.jpg"
+          & "$t\ffmpeg.exe" -v error -f lavfi -i color=blue:s=16x16 -frames:v 1 "$base\a\b.png"
+          Rename-Item "$base\a\a.jpg" "Ảnh bìa.jpg"
+          Rename-Item "$base\a\b.png" "Hình nền.png"
+          Rename-Item "$base\a" "Thư mục ảnh"
+          $d = "$base\Thư mục ảnh"
           $alias = "$env:LOCALAPPDATA\Microsoft\WindowsApps\starveil.exe"
           if (!(Test-Path "$env:LOCALAPPDATA\Microsoft\WindowsApps\exif-remover.exe")) { throw "exif-remover.exe alias missing" }
           $p = Start-Process $alias -ArgumentList '--no-backup', "`"$d`"" -Wait -PassThru -RedirectStandardOutput out.txt -RedirectStandardError err.txt
           if ($p.ExitCode -ne 0) { Get-Content out.txt, err.txt; throw "packaged app exited with $($p.ExitCode)" }
-          Rename-Item "$d\ảnh.jpg" "a.jpg"
-          $left = & "$t\exiftool.exe" -s -GPSLatitude -Make "$d\a.jpg"
+          $p = Start-Process $alias -ArgumentList '--to-jpg', "`"$d\Hình nền.png`"" -Wait -PassThru -RedirectStandardOutput out.txt -RedirectStandardError err.txt
+          if ($p.ExitCode -ne 0 -or !(Test-Path "$d\Hình nền.jpg")) { Get-Content out.txt, err.txt; throw "packaged --to-jpg failed ($($p.ExitCode))" }
+          Rename-Item $d "a"
+          Rename-Item "$base\a\Ảnh bìa.jpg" "a.jpg"
+          $left = & "$t\exiftool.exe" -s -GPSLatitude -Make "$base\a\a.jpg"
           if ($left) { throw "metadata left after packaged run: $left" }
           # GUI from the Start menu entry; its log must say it knows it is packaged (updater off).
           Start-Process "shell:AppsFolder\$($pkg.PackageFamilyName)!StarVeil"
@@ -157,7 +165,7 @@ jobs:
           if (!$log) { throw "packaged GUI did not log 'Store package' (updater may still be on)" }
           $gui | Stop-Process
           Remove-AppxPackage $pkg.PackageFullName
-          Write-Host "msix OK: $msix installs, cleans via alias, GUI starts in packaged mode ($($log[-1].Line))"
+          Write-Host "msix OK: $msix installs, cleans + converts Vietnamese-named files via alias, GUI starts in packaged mode ($($log[-1].Line))"
 
       - name: SHA256SUMS.txt
         run: |

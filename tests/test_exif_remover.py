@@ -390,6 +390,18 @@ class ConvertTests(unittest.TestCase):
                 self.assertFalse({"Creator", "GPSLatitude"} & names(out))
                 os.remove(out)
 
+    def test_vietnamese_folder_and_name(self):
+        f = self.make("a.png", "-frames:v", "1")
+        sh("exiftool", "-q", "-overwrite_original", "-XMP:Creator=Bob", f)  # fixture under an ASCII name, then renamed
+        os.mkdir(self.p("Thư mục ảnh"))
+        u = self.p(os.path.join("Thư mục ảnh", "Ảnh bìa.png"))
+        os.rename(f, u)
+        out, _ = er.convert_file(u)
+        self.assertEqual(out, self.p(os.path.join("Thư mục ảnh", "Ảnh bìa.jpg")))
+        self.assertEqual(er.leftovers(er.read_tags(out)), [])
+        before, after = er.clean_file(out)  # and clean the result in place
+        self.assertGreaterEqual(before, after)
+
     def test_transparent_png_flattened_on_white(self):
         f = self.make("t.png", "-frames:v", "1",
                       src="color=blue:s=32x48,format=rgba,pad=64:48:32:0:black@0")  # left half transparent black
