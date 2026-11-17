@@ -432,6 +432,9 @@ def to_jpg_main(argv):
 
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
+    for s in (sys.stdout, sys.stderr):  # redirected output on Windows is cp1252: a Vietnamese path must not fail the file
+        if hasattr(s, "reconfigure"):
+            s.reconfigure(errors="backslashreplace")
     if not argv or argv[0] in ("-h", "--help"):
         print("usage: exif-remover [--no-backup] FILE_OR_DIR...\n"
               "  cleans in place, recursive; each folder is first copied to <folder>_backup-YYYY-MM-DD\n"

@@ -9,6 +9,7 @@ The section for a version is used as its release notes and shown in the in-app u
 - **Giới thiệu** có thêm nút **Quyền riêng tư** và **Điều khoản sử dụng**, mở các trang chính sách công khai trên GitHub Pages.
 - Chuẩn bị cho Microsoft Store: gói MSIX `StarVeil-1.0.0.0-x64.msix` (chưa ký; Store sẽ ký). Bản Store không có trình tự cập nhật (Store lo việc đó) và không kết nối mạng.
 - Dòng lệnh vẫn như cũ: `StarVeil.exe --no-backup C:\anh` (bản Store: `starveil.exe` hoặc `exif-remover.exe`).
+- Sửa: dòng lệnh không còn báo lỗi nhầm với tệp tên tiếng Việt khi chuyển kết quả ra tệp (`> log.txt`) — tệp đã được làm sạch nhưng việc in tên tệp bị lỗi mã hoá.
 
 ## v0.2.6
 

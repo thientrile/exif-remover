@@ -1,3 +1,4 @@
+import io
 import os
 import shutil
 import struct
@@ -156,6 +157,16 @@ class CleanTests(unittest.TestCase):
                 er.clean_file(f)
         self.assertEqual(Path(f).read_bytes(), original)
         self.assert_no_temp_left()
+
+    def test_cli_vietnamese_name_with_cp1252_stdout(self):
+        # Redirected stdout on Windows is cp1252: printing the path once failed a file the app had cleaned.
+        f = self.p("Ảnh bìa.png")
+        sh("ffmpeg", "-v", "error", "-f", "lavfi", "-i", "color=blue:s=16x16", "-frames:v", "1", f)
+        insert_after_ihdr(f, png_chunk(b"tEXt", b"Author\x00Bob"))
+        out = io.TextIOWrapper(io.BytesIO(), encoding="cp1252")
+        with mock.patch.object(sys, "stdout", out), mock.patch.object(sys, "stderr", out):
+            self.assertEqual(er.main(["--no-backup", f]), 0)
+        self.assertEqual(er.png_extra_chunks(f), [])
 
     def test_cli_recursive_and_exit_code(self):
         os.makedirs(self.p("sub"))
