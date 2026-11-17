@@ -347,7 +347,7 @@ def cmyk_tiff(path, w=8, h=8, cmyk=(0, 255, 255, 0)):
 class ConvertTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.d = self.tmp.name
+        self.d = os.path.realpath(self.tmp.name)  # Windows temp is an 8.3 short name; convert_file returns real paths
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -421,9 +421,12 @@ class ConvertTests(unittest.TestCase):
 
     def test_rotated_image_turned_upright(self):
         # left half red, right half blue; Orientation 6 = rotate 90 CW, so red ends up on top
-        for name in ("rot.png", "rot.webp", "rot.tif"):
+        still = "color=red:s=32x48,pad=64:48:0:0:blue"
+        anim = ("-frames:v", "2", "-c:v", "libwebp_anim")  # 2nd frame differs, or the encoder makes a still
+        for name, src, args in (("rot.png", still, ()), ("rot.webp", still, ()), ("rot.tif", still, ()),
+                                ("rot-anim.webp", still + ",drawbox=enable='gte(n,1)':c=green:t=fill", anim)):
             with self.subTest(name):
-                f = self.make(name, "-frames:v", "1", src="color=red:s=32x48,pad=64:48:0:0:blue")
+                f = self.make(name, "-frames:v", "1", *args, src=src)
                 sh("exiftool", "-q", "-overwrite_original", "-Orientation#=6", f)
                 out, _, tags = self.convert(f)
                 self.assertIn(("Composite", "ImageSize", "48x64"), tags)

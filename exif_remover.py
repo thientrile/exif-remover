@@ -361,8 +361,8 @@ def convert_file(path):
         animated = (int(get("FrameCount") or 1) > 1 or int(get("AnimationFrames") or 1) > 1
                     or "Animation" in get("WebP_Flags"))
         pad = webp_first_frame(src, frame) if ext == ".webp" else None
-        if pad:
-            flt.append(pad)
+        if pad:  # rebuild the canvas first, so the orientation below turns the whole frame
+            flt.insert(0, pad)
         if auto:  # ffmpeg 8.1 assembles HEIF grids/alpha in its own filtergraph, which -vf cannot extend: decode first
             frame = part("frame-", ".png")
             run(["ffmpeg", "-nostdin", "-v", "error", "-i", src, "-frames:v", "1", "-y", frame])
