@@ -17,7 +17,7 @@ Tinh Ảnh xoá thông tin ẩn (metadata) khỏi ảnh, video và PDF **ngay tr
 - Nhà phát triển: cá nhân, tài khoản GitHub **@thientrile** (ký tên "Ánh sao & Bầu trời").
 - Họ tên pháp lý: [CẦN ĐIỀN: họ tên pháp lý của nhà phát triển]
 - Địa chỉ liên hệ: [CẦN ĐIỀN: địa chỉ bưu chính, hoặc ghi "không công bố" nếu luật nơi bạn cư trú cho phép]
-- Liên hệ về quyền riêng tư: GitHub Issues tại https://github.com/thientrile/exif-remover/issues hoặc email [CẦN ĐIỀN: email liên hệ riêng tư]
+- Liên hệ về quyền riêng tư: GitHub Issues tại https://github.com/thientrile/exif-remover/issues hoặc Telegram https://t.me/liguni0202 (liên hệ riêng)
 
 ### 3. Tệp của bạn
 
@@ -87,7 +87,7 @@ StarVeil removes hidden information (metadata) from images, videos and PDFs **on
 - Developer: an individual, GitHub account **@thientrile** (signing as "Ánh sao & Bầu trời").
 - Legal name: [CẦN ĐIỀN: developer's legal name]
 - Contact address: [CẦN ĐIỀN: postal address, or "not published" if the law where you live allows it]
-- Privacy contact: GitHub Issues at https://github.com/thientrile/exif-remover/issues or email [CẦN ĐIỀN: privacy contact email]
+- Privacy contact: GitHub Issues at https://github.com/thientrile/exif-remover/issues or Telegram https://t.me/liguni0202 (private contact)
 
 ### 3. Your files
 

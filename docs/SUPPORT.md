@@ -28,7 +28,7 @@ Issue trên GitHub là **công khai**.
 
 ### Liên hệ riêng
 
-Với vấn đề riêng tư, bảo mật hoặc pháp lý, không muốn đăng công khai: [CẦN ĐIỀN: email liên hệ riêng]
+Với vấn đề riêng tư, bảo mật hoặc pháp lý, không muốn đăng công khai: nhắn Telegram https://t.me/liguni0202
 
 ### Thời gian phản hồi
 
@@ -73,7 +73,7 @@ GitHub Issues are **public**.
 
 ### Private contact
 
-For privacy, security or legal matters you don't want to post publicly: [CẦN ĐIỀN: private contact email]
+For privacy, security or legal matters you don't want to post publicly: message on Telegram https://t.me/liguni0202
 
 ### Response time
 

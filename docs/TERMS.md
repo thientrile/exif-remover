@@ -68,7 +68,7 @@ Các điều khoản này chịu sự điều chỉnh của pháp luật Việt 
 
 ### 12. Liên hệ
 
-https://github.com/thientrile/exif-remover/issues · [CẦN ĐIỀN: email liên hệ]
+https://github.com/thientrile/exif-remover/issues · Telegram: https://t.me/liguni0202
 
 ---
 
@@ -134,4 +134,4 @@ These terms may be updated; the new effective date will be shown at the top. Con
 
 ### 12. Contact
 
-https://github.com/thientrile/exif-remover/issues · [CẦN ĐIỀN: contact email]
+https://github.com/thientrile/exif-remover/issues · Telegram: https://t.me/liguni0202

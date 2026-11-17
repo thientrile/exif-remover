@@ -32,6 +32,7 @@ GREEN, RED, MUTED, AMBER = ("#15803d", "#4ade80"), ("#b91c1c", "#f87171"), ("#6b
 SIGNATURE, OWNER_URL = "Ánh sao & Bầu trời · by @thientrile", "https://github.com/thientrile"
 REPO_URL = f"https://github.com/{updater.REPO}"
 SUPPORT_URL, BUG_URL = REPO_URL + "/issues/new/choose", REPO_URL + "/issues/new?template=bug_report.yml"
+TELEGRAM_URL = "https://t.me/liguni0202"  # the only private contact (owner: no email)
 APP, APP_EN, TAGLINE = "Tinh Ảnh", "StarVeil", "Xoá metadata ảnh"  # formerly "Exif Remover"
 PAGES = "https://thientrile.github.io/exif-remover/"  # docs/ on GitHub Pages
 PRIVACY_URL, TERMS_URL = PAGES + "PRIVACY.html", PAGES + "TERMS.html"
@@ -892,6 +893,7 @@ class App:
         grid.pack(pady=(14, 20))
         buttons = [("Trang dự án", lambda: webbrowser.open(REPO_URL)),
                    ("Báo lỗi / góp ý", lambda: webbrowser.open(SUPPORT_URL)),
+                   ("Liên hệ qua Telegram", lambda: webbrowser.open(TELEGRAM_URL)),
                    ("Giấy phép & bên thứ ba", lambda: self.show_licenses(win)),
                    ("Mở thư mục log", self.open_logs)]
         if not PACKAGED:
@@ -943,6 +945,7 @@ class App:
         row.pack(pady=16)
         self.secondary(row, "Mở thư mục log", self.open_logs, 130).pack(side="left", padx=4)
         self.secondary(row, "Báo lỗi", lambda: webbrowser.open(BUG_URL), 90).pack(side="left", padx=4)
+        self.secondary(row, "Telegram", lambda: webbrowser.open(TELEGRAM_URL), 90).pack(side="left", padx=4)
         self.secondary(row, "Đóng", win.destroy, 70).pack(side="left", padx=4)
         win.after(100, win.lift)
 

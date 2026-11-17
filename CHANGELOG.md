@@ -2,6 +2,11 @@
 
 The section for a version is used as its release notes and shown in the in-app update dialog.
 
+## v1.0.1
+
+- **Giới thiệu** có thêm nút **Liên hệ qua Telegram** (https://t.me/liguni0202); hộp thoại lỗi bất ngờ có thêm nút **Telegram** cạnh **Báo lỗi**.
+- Chính sách quyền riêng tư, điều khoản và trang hỗ trợ ghi Telegram là kênh liên hệ riêng. Báo lỗi vẫn qua GitHub Issues.
+
 ## v1.0.0
 
 - Ứng dụng đổi tên thành **Tinh Ảnh** (tiếng Anh: **StarVeil**) · *Xoá metadata ảnh*. Tệp chạy là `StarVeil.exe`, bộ cài `StarVeil-Setup-1.0.0.exe`, lối tắt menu Start **Tinh Ảnh (StarVeil)**.
