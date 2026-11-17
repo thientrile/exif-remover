@@ -1,5 +1,5 @@
 """Windows only: run the GUI on demo files in C:\\demo\\photos and save PNGs of the metadata viewer and the
-finished main window, the backups list and a "Chuyển sang JPG" run into the folder given as argument."""
+finished main window, the backups list, a "Chuyển sang JPG" run and the About dialog into the folder given as argument."""
 import ctypes
 import ctypes.wintypes
 import os
@@ -71,8 +71,12 @@ if __name__ == "__main__":
         root.after(1500, lambda: (capture(win, "backups.png"), win.destroy(), root.after(500, to_jpg)))
 
     def to_jpg():
-        app.on_finish = lambda: root.after(1200, lambda: (capture(root, "jpg.png"), root.destroy()))
+        app.on_finish = lambda: root.after(1200, lambda: (capture(root, "jpg.png"), root.after(300, about)))
         app.start("jpg")
+
+    def about():
+        win = app.show_about()
+        root.after(1500, lambda: (capture(win, "about.png"), root.destroy()))
 
     root.after(3000, show_metadata)
     root.mainloop()

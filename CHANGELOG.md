@@ -2,6 +2,13 @@
 
 The section for a version is used as its release notes and shown in the in-app update dialog.
 
+## v0.2.6
+
+- Nút **Giới thiệu** ở góc dưới bên phải: phiên bản, giấy phép, công cụ đi kèm, cam kết quyền riêng tư (mọi xử lý trên máy bạn), nút **Trang dự án**, **Báo lỗi / góp ý**, **Giấy phép & bên thứ ba**, **Mở thư mục log**, **Kiểm tra cập nhật**.
+- Lỗi được ghi vào `%LOCALAPPDATA%\ExifRemover\logs\app.log` (chỉ đường dẫn và nội dung lỗi). Lỗi bất ngờ hiện hộp thoại có nút **Mở thư mục log** và **Báo lỗi** thay vì tắt im lặng.
+- Chữ ký **Ánh sao & Bầu trời · by @thientrile** ở góc dưới, bấm để mở trang GitHub của tác giả.
+- Bộ cài hiện giấy phép MIT; nhà phát hành "Ánh sao & Bầu trời (thientrile)"; tệp ExifRemover.exe có thông tin phiên bản và bản quyền.
+
 ## v0.2.5
 
 - Nút mới **Chuyển sang JPG**: đổi ảnh WebP, PNG, GIF, BMP, TIFF, AVIF, HEIC trong danh sách sang JPG, chạy ngay trên máy, không tải ảnh lên mạng.

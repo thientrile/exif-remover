@@ -1,4 +1,4 @@
-; Inno Setup script. Build: iscc /DAppVersion=0.1.0 installer.iss (after PyInstaller made dist\ExifRemover)
+﻿; Inno Setup script (UTF-8 with BOM: the publisher name has Vietnamese letters). Build: iscc /DAppVersion=0.1.0 installer.iss (after PyInstaller made dist\ExifRemover)
 #ifndef AppVersion
   #define AppVersion "0.0.0"
 #endif
@@ -7,8 +7,11 @@
 AppId={{D9BBF5CF-7048-4CE3-9E04-B8D59A5EDA2E}
 AppName=Exif Remover
 AppVersion={#AppVersion}
-AppPublisher=thientrile
-AppPublisherURL=https://github.com/thientrile/exif-remover
+AppPublisher=Ánh sao & Bầu trời (thientrile)
+AppPublisherURL=https://github.com/thientrile
+AppSupportURL=https://github.com/thientrile/exif-remover/issues
+AppCopyright=© 2026 thientrile
+LicenseFile=LICENSE
 DefaultDirName={autopf}\Exif Remover
 DefaultGroupName=Exif Remover
 DisableProgramGroupPage=yes
