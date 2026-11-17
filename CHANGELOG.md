@@ -2,6 +2,14 @@
 
 The section for a version is used as its release notes and shown in the in-app update dialog.
 
+## v1.0.0
+
+- Ứng dụng đổi tên thành **Tinh Ảnh** (tiếng Anh: **StarVeil**) · *Xoá metadata ảnh*. Tệp chạy là `StarVeil.exe`, bộ cài `StarVeil-Setup-1.0.0.exe`, lối tắt menu Start **Tinh Ảnh (StarVeil)**.
+- Bản cũ (Exif Remover 0.2.x) cập nhật thẳng lên 1.0.0 như mọi lần: cài đè vào cùng thư mục, gỡ `ExifRemover.exe` và lối tắt cũ, **giữ nguyên** cài đặt, danh sách bản sao lưu và log (`%APPDATA%\ExifRemover`, `%LOCALAPPDATA%\ExifRemover`).
+- **Giới thiệu** có thêm nút **Quyền riêng tư** và **Điều khoản sử dụng**, mở các trang chính sách công khai trên GitHub Pages.
+- Chuẩn bị cho Microsoft Store: gói MSIX `StarVeil-1.0.0.0-x64.msix` (chưa ký; Store sẽ ký). Bản Store không có trình tự cập nhật (Store lo việc đó) và không kết nối mạng.
+- Dòng lệnh vẫn như cũ: `StarVeil.exe --no-backup C:\anh` (bản Store: `starveil.exe` hoặc `exif-remover.exe`).
+
 ## v0.2.6
 
 - Nút **Giới thiệu** ở góc dưới bên phải: phiên bản, giấy phép, công cụ đi kèm, cam kết quyền riêng tư (mọi xử lý trên máy bạn), nút **Trang dự án**, **Báo lỗi / góp ý**, **Giấy phép & bên thứ ba**, **Mở thư mục log**, **Kiểm tra cập nhật**.

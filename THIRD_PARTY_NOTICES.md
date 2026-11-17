@@ -1,6 +1,6 @@
 # Third-party notices
 
-The MIT license in `LICENSE` covers only the Exif Remover code in this repository. The Windows
+The MIT license in `LICENSE` covers only the Tinh Ảnh (StarVeil, formerly Exif Remover) code in this repository. The Windows
 installer also ships these programs unmodified, as separate executables in `_internal\tools\`.
 They are run as external processes; each keeps its own license. Versions and download URLs
 (with SHA256) are pinned in `scripts/fetch_tools.py`.

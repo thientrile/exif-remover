@@ -91,19 +91,19 @@ class GuiTests(unittest.TestCase):
         win = self.app.show_about()
         self.app.root.update()
         t = self.texts(win)
-        for want in ("Exif Remover", f"Phiên bản {er.__version__}", gui.SIGNATURE, gui.PRIVACY, "Trang dự án",
-                     "Báo lỗi / góp ý", "Giấy phép & bên thứ ba", "Mở thư mục log", "Kiểm tra cập nhật"):
+        for want in ("Tinh Ảnh", "StarVeil · Xoá metadata ảnh", f"Phiên bản {er.__version__}", gui.SIGNATURE, gui.PRIVACY, "Trang dự án",
+                     "Báo lỗi / góp ý", "Giấy phép & bên thứ ba", "Mở thư mục log", "Kiểm tra cập nhật",
+                     "Quyền riêng tư", "Điều khoản sử dụng"):
             self.assertIn(want, t)
-        self.assertNotIn("Quyền riêng tư", t)  # no policy page yet (PRIVACY_URL is None)
         lic = self.app.show_licenses(win)
         self.app.root.update()
         box = next(w for w in lic.winfo_children() if isinstance(w, gui.ctk.CTkTextbox))
         body = box.get("1.0", "end")
         self.assertIn("MIT License", body)
         self.assertIn("ExifTool", body)
-        with mock.patch.object(gui, "PRIVACY_URL", "https://example.org/p"):
+        with mock.patch.object(gui, "PACKAGED", True):  # Store build: no update button
             w2 = self.app.show_about()
-            self.assertIn("Quyền riêng tư", self.texts(w2))
+            self.assertNotIn("Kiểm tra cập nhật", self.texts(w2))
         for w in (lic, win, w2):  # close our windows (and their after-loops) while root is alive
             w.destroy()
         self.app.root.update()

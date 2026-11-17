@@ -1,5 +1,6 @@
 import hashlib
 import io
+import json
 import os
 import sys
 import unittest
@@ -31,6 +32,7 @@ class UpdaterTests(unittest.TestCase):
     def test_only_this_repo_and_github_hosts(self):
         up.check_url(GOOD + "x.exe")
         up.check_url("https://objects.githubusercontent.com/abc")
+        up.check_url("https://github.com/thientrile/starveil/releases/download/v1/x.exe")  # future repo name
         for bad in ("http://github.com/thientrile/exif-remover/releases/download/v1/x.exe",
                     "https://github.com/evil/exif-remover/releases/download/v1/x.exe",
                     "https://github.com.evil.com/thientrile/exif-remover/releases/download/v1/x.exe",
@@ -77,6 +79,22 @@ class UpdaterTests(unittest.TestCase):
             self.assertEqual(up.load_settings(), {"check_updates": True})
             up.save_settings({"check_updates": False})
             self.assertEqual(up.load_settings(), {"check_updates": False})
+
+
+    def test_latest_picks_starveil_installer(self):
+        base = GOOD.replace("v9.9.9", "v1.0.0")
+        rel = {"tag_name": "v1.0.0", "body": "notes", "assets": [
+            {"name": n, "browser_download_url": base + n}
+            for n in ("ExifRemover-Setup-1.0.0.exe", "StarVeil-Setup-1.0.0.exe", "SHA256SUMS.txt")]}
+        with mock.patch.object(up.urllib.request, "urlopen", lambda req, timeout: FakeResp(json.dumps(rel).encode())):
+            info = up.latest()
+        self.assertEqual(info["installer"], ("StarVeil-Setup-1.0.0.exe", base + "StarVeil-Setup-1.0.0.exe"))
+
+    def test_packaged_build_never_updates(self):
+        self.assertIs(up.is_packaged(), False)  # tests never run inside an MSIX package
+        with mock.patch.object(up, "is_packaged", return_value=True), \
+                mock.patch.object(up, "latest", side_effect=AssertionError("network used")):
+            self.assertEqual(up.self_update(), 0)
 
 
 if __name__ == "__main__":
