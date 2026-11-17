@@ -102,7 +102,11 @@ class GuiTests(unittest.TestCase):
         self.assertIn("MIT License", body)
         self.assertIn("ExifTool", body)
         with mock.patch.object(gui, "PRIVACY_URL", "https://example.org/p"):
-            self.assertIn("Quyền riêng tư", self.texts(self.app.show_about()))
+            w2 = self.app.show_about()
+            self.assertIn("Quyền riêng tư", self.texts(w2))
+        for w in (lic, win, w2):  # close our windows (and their after-loops) while root is alive
+            w.destroy()
+        self.app.root.update()
 
     def test_unhandled_error_is_logged_and_shown(self):
         log_dir = os.path.join(self.tmp.name, "logs")
@@ -117,6 +121,7 @@ class GuiTests(unittest.TestCase):
         self.assertIn("ZeroDivisionError", Path(log_dir, "app.log").read_text(encoding="utf-8"))
         self.assertIn("Mở thư mục log", self.texts(self.app.crash_win))
         self.assertIn("Báo lỗi", self.texts(self.app.crash_win))
+        self.app.crash_win.destroy()
 
     def test_list_skips_backups_shows_real_type_and_relative_names(self):
         self.assertEqual(sorted(self.col("name")), ["a.jpg", "b.jpg", "c.jpg", os.path.join("sub", "jpeg named.png")])
