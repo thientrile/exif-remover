@@ -134,15 +134,18 @@ jobs:
           Write-Host "installed at $($pkg.InstallLocation); longest path $($long.FullName.Length) chars: $($long.FullName)"
           # Clean a GPS JPEG in a deep folder through the execution alias: exiftool runs from inside WindowsApps.
           $t = "tools"
-          $d = "$env:RUNNER_TEMP\msix\" + ('thư mục sâu\' * 6)
+          # Fixture tools get ASCII paths (exiftool reads its arguments in the ANSI code page); the app gets ảnh.jpg.
+          $d = "$env:RUNNER_TEMP\msix\" + ('deep folder\' * 6)
           New-Item -ItemType Directory $d -Force | Out-Null
-          & "$t\ffmpeg.exe" -v error -f lavfi -i color=red:s=16x16 -frames:v 1 "$d\ảnh.jpg"
-          & "$t\exiftool.exe" -q -overwrite_original '-GPSLatitude=48.8' '-GPSLatitudeRef=N' '-Make=Canon' "$d\ảnh.jpg"
+          & "$t\ffmpeg.exe" -v error -f lavfi -i color=red:s=16x16 -frames:v 1 "$d\a.jpg"
+          & "$t\exiftool.exe" -q -overwrite_original '-GPSLatitude=48.8' '-GPSLatitudeRef=N' '-Make=Canon' "$d\a.jpg"
+          Rename-Item "$d\a.jpg" "ảnh.jpg"
           $alias = "$env:LOCALAPPDATA\Microsoft\WindowsApps\starveil.exe"
           if (!(Test-Path "$env:LOCALAPPDATA\Microsoft\WindowsApps\exif-remover.exe")) { throw "exif-remover.exe alias missing" }
           $p = Start-Process $alias -ArgumentList '--no-backup', "`"$d`"" -Wait -PassThru
           if ($p.ExitCode -ne 0) { throw "packaged app exited with $($p.ExitCode)" }
-          $left = & "$t\exiftool.exe" -s -GPSLatitude -Make "$d\ảnh.jpg"
+          Rename-Item "$d\ảnh.jpg" "a.jpg"
+          $left = & "$t\exiftool.exe" -s -GPSLatitude -Make "$d\a.jpg"
           if ($left) { throw "metadata left after packaged run: $left" }
           # GUI from the Start menu entry; its log must say it knows it is packaged (updater off).
           Start-Process "shell:AppsFolder\$($pkg.PackageFamilyName)!StarVeil"
