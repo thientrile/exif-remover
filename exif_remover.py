@@ -16,9 +16,9 @@ import time
 import uuid
 from datetime import date
 
-__version__ = "0.2.4"  # single source: GUI, installer (CI reads it) and the release tag must match
+__version__ = "0.2.5"  # single source: GUI, installer (CI reads it) and the release tag must match
 
-IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif", ".avif", ".tif", ".tiff", ".gif"}
+IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif", ".avif", ".tif", ".tiff", ".gif", ".bmp"}
 VIDEO_EXT = {".mp4", ".mov", ".m4v"}
 PDF_EXT = {".pdf"}
 SUPPORTED = IMAGE_EXT | VIDEO_EXT | PDF_EXT
@@ -226,6 +226,8 @@ def clean_pdf(src, dst):
 
 
 def engine_for(ext):
+    if ext == ".bmp":  # BMP has no metadata blocks and exiftool cannot write it: copy, then verify as usual
+        return shutil.copyfile
     if ext in IMAGE_EXT:
         return clean_image
     if ext in VIDEO_EXT:
@@ -277,6 +279,114 @@ def clean_file(path):
     return before, after
 
 
+CONVERT_EXT = {".png", ".webp", ".gif", ".bmp", ".tif", ".tiff", ".avif", ".heic", ".heif"}
+# EXIF Orientation (exiftool's text) -> ffmpeg filter that turns the pixels upright.
+ORIENT = {"Mirror horizontal": "hflip", "Rotate 180": "hflip,vflip", "Mirror vertical": "vflip",
+          "Mirror horizontal and rotate 270 CW": "transpose=0", "Rotate 90 CW": "transpose=1",
+          "Rotate 270 CW": "transpose=2", "Mirror horizontal and rotate 90 CW": "transpose=3"}
+FLATTEN = "format=rgba,split[a][b];[a]drawbox=c=white:t=fill[bg];[bg][b]overlay=format=rgb"  # transparency -> white
+
+
+class Skipped(Exception):
+    pass
+
+
+def webp_first_frame(path, out):
+    """ffmpeg cannot decode animated WebP: write its first frame as a still WebP to out.
+    Returns the pad filter that places it on the canvas, or None if path is not animated."""
+    with open(path, "rb") as f:
+        data = f.read()
+    chunks, i = {}, 12
+    while i + 8 <= len(data):
+        kind, n = data[i:i + 4], struct.unpack("<I", data[i + 4:i + 8])[0]
+        chunks.setdefault(kind, data[i + 8:i + 8 + n])
+        i += 8 + n + (n & 1)
+    if b"ANIM" not in chunks or b"ANMF" not in chunks:
+        return None
+    u24 = lambda b, o: int.from_bytes(b[o:o + 3], "little")  # noqa: E731
+    canvas, frame = chunks[b"VP8X"], chunks[b"ANMF"]
+    x, y, w, h = 2 * u24(frame, 0), 2 * u24(frame, 3), u24(frame, 6) + 1, u24(frame, 9) + 1
+    body = frame[16:]  # ALPH (optional) then VP8/VP8L, already padded RIFF sub-chunks
+    vp8x = struct.pack("<I", 0x10 if b"ALPH" in body[:4] or b"VP8L" in body[:4] else 0)
+    vp8x += (w - 1).to_bytes(3, "little") + (h - 1).to_bytes(3, "little")
+    payload = b"WEBP" + b"VP8X" + struct.pack("<I", 10) + vp8x + body
+    with open(out, "wb") as f:
+        f.write(b"RIFF" + struct.pack("<I", len(payload)) + payload)
+    return f"pad={u24(canvas, 4) + 1}:{u24(canvas, 7) + 1}:{x}:{y}:color=white"
+
+
+def reserve_jpg(path):
+    """Create an empty name.jpg (else name-1.jpg, name-2.jpg...) next to path; exclusive create, so never an existing file."""
+    stem, n = os.path.splitext(path)[0], 0
+    while True:
+        out = f"{stem}-{n}.jpg" if n else stem + ".jpg"
+        try:
+            open(out, "x").close()
+            return out
+        except FileExistsError:
+            n += 1
+
+
+def convert_file(path):
+    """Write a metadata-free JPEG copy next to path; the original is never changed.
+    Returns (jpg_path, note); note says when only the first frame of an animation was used.
+    Raises Skipped (already a JPEG, not an image) or RuntimeError (nothing is left behind)."""
+    path = os.path.realpath(path)
+    tags = read_tags(path)
+    errors = [v for _, n, v in tags if n == "Error"]
+    if errors:
+        raise RuntimeError(f"unreadable: {errors[0]}")
+    ext = real_ext(path, tags)
+    if ext in (".jpg", ".jpeg"):
+        raise Skipped("already a JPEG")
+    if ext not in CONVERT_EXT:
+        raise Skipped(f"not a convertible image ({file_type(tags) or ext})")
+    get = lambda name: next((str(v) for _, n, v in tags if n == name), "")  # noqa: E731
+    d, name = os.path.split(path)
+    stem, token = os.path.splitext(name)[0], uuid.uuid4().hex[:8]
+    part = lambda kind, e: os.path.join(d, f".{stem}.exifclean-{kind}{token}{e}")  # noqa: E731
+    src, mid, frame, tmp = part("src-", ext), part("mid-", ".jpg"), part("frame-", ".webp"), part("", ".jpg")
+    out = None
+    try:
+        if ext == os.path.splitext(name)[1].lower():
+            src = path
+        else:  # exiftool reads the type from the name: a misnamed source is read via a correctly named copy
+            shutil.copy2(path, src)
+        flt = [FLATTEN]
+        # HEIF/AVIF rotation lives in the container (irot/imir): ffmpeg applies it while decoding. For the others
+        # ffmpeg's handling of EXIF Orientation differs between versions, so it is off and applied here.
+        auto = ext in (".heic", ".heif", ".avif")
+        if not auto and get("Orientation") in ORIENT:
+            flt.insert(0, ORIENT[get("Orientation")])
+        animated = (int(get("FrameCount") or 1) > 1 or int(get("AnimationFrames") or 1) > 1
+                    or "Animation" in get("WebP_Flags"))
+        pad = webp_first_frame(src, frame) if ext == ".webp" else None
+        if pad:
+            flt.append(pad)
+        if auto:  # ffmpeg 8.1 assembles HEIF grids/alpha in its own filtergraph, which -vf cannot extend: decode first
+            frame = part("frame-", ".png")
+            run(["ffmpeg", "-nostdin", "-v", "error", "-i", src, "-frames:v", "1", "-y", frame])
+        run(["ffmpeg", "-nostdin", "-v", "error", "-noautorotate", "-i", frame if pad or auto else src,
+             "-vf", ",".join(flt),
+             "-frames:v", "1", "-q:v", "2", "-pix_fmt", "yuvj420p", "-fflags", "+bitexact", "-flags:v", "+bitexact",
+             "-y", mid])
+        # Keep an RGB colour profile so colours do not shift; a CMYK/grey one would not match the RGB pixels.
+        icc = ["-tagsfromfile", src, "-ICC_Profile"] if get("ColorSpaceData").strip() == "RGB" else []
+        run(["exiftool", "-q", "-q", "-all=", *icc, "-o", tmp, mid])
+        verify(tmp)
+        out = reserve_jpg(path)
+        replace(tmp, out)
+    except BaseException:
+        if out and os.path.exists(out) and os.path.getsize(out) == 0:
+            os.remove(out)
+        raise
+    finally:
+        for f in {src, mid, frame, tmp} - {path}:
+            if os.path.exists(f):
+                os.remove(f)
+    return out, "first frame only (animated)" if animated else ""
+
+
 def collect(args):
     files, skipped = [], []
     for a in args:
@@ -296,12 +406,40 @@ def collect(args):
     return files, skipped
 
 
+def to_jpg_main(argv):
+    for t in ("exiftool", "ffmpeg"):
+        if not tool(t):
+            print(f"missing tool: {t}", file=sys.stderr)
+            return 2
+    files, missing = collect(argv)
+    ok = skipped = failed = 0
+    for f in files:
+        try:
+            out, note = convert_file(f)
+            ok += 1
+            print(f"OK     {f} -> {os.path.basename(out)}" + (f"  ({note})" if note else ""))
+        except Skipped as e:
+            skipped += 1
+            print(f"SKIP   {f}: {e}")
+        except Exception as e:
+            failed += 1
+            print(f"FAIL   {f}: {e}", file=sys.stderr)
+    for m in missing:
+        print(f"SKIP   {m} (not found, unsupported type, or a _backup- folder)")
+    print(f"\n{'FAILED' if failed or missing else 'OK'}: {ok} converted, {skipped} skipped, {failed} failed")
+    return 1 if failed or missing else 0
+
+
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     if not argv or argv[0] in ("-h", "--help"):
         print("usage: exif-remover [--no-backup] FILE_OR_DIR...\n"
-              "  cleans in place, recursive; each folder is first copied to <folder>_backup-YYYY-MM-DD")
+              "  cleans in place, recursive; each folder is first copied to <folder>_backup-YYYY-MM-DD\n"
+              "       exif-remover --to-jpg FILE_OR_DIR...\n"
+              "  writes a metadata-free name.jpg (or name-1.jpg...) next to each image; originals untouched")
         return 0 if argv else 2
+    if argv[0] == "--to-jpg":
+        return to_jpg_main(argv[1:])
     no_backup = "--no-backup" in argv
     argv = [a for a in argv if a != "--no-backup"]
     for t in ("exiftool", "ffmpeg", "qpdf"):

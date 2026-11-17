@@ -27,8 +27,13 @@ Strips metadata (EXIF, GPS, XMP, IPTC, comments, C2PA content credentials) from 
 9. **Dọn bản sao lưu cũ**: bấm **Bản sao lưu** ở góc dưới bên trái. Cửa sổ liệt kê các bản sao lưu do chính ứng dụng tạo: thư mục, ngày tạo, dung lượng, thư mục gốc còn hay không. Chọn một hoặc nhiều dòng (giữ Ctrl), hoặc bấm **Chọn tất cả**, rồi bấm **Xoá** (vào Thùng rác, có hỏi lại).
    - Ứng dụng chỉ xoá thư mục nó tự tạo và còn đúng tên `..._backup-NĂM-THÁNG-NGÀY`; thư mục khác không bao giờ bị đụng tới. Bản sao lưu đã bị xoá hoặc đổi tên bằng tay sẽ tự biến khỏi danh sách.
    - Tuỳ chọn **Khi mở ứng dụng, đề nghị xoá bản sao lưu cũ hơn N ngày** (mặc định tắt): bật lên thì mỗi lần mở, nếu có bản cũ hơn N ngày, ứng dụng hỏi trước khi xoá, không bao giờ tự xoá âm thầm.
-10. **Cập nhật**: khi có bản mới, ứng dụng hỏi **Có bản mới vX.Y.Z** kèm ghi chú. Bấm **Cập nhật ngay** thì ứng dụng tải bộ cài từ trang GitHub này, kiểm tra mã SHA256, cài đè rồi tự mở lại; bấm **Để sau** để bỏ qua. Không bao giờ tự cài khi bạn chưa bấm. Có thể tắt **Tự kiểm tra cập nhật khi mở** hoặc bấm **Kiểm tra cập nhật** ở góc dưới.
-11. **Gỡ cài đặt**: **Settings** → **Apps** → **Installed apps**, tìm **Exif Remover**, bấm **...** → **Uninstall**. Các tệp đã làm sạch và bản sao lưu không bị xoá.
+10. **Chuyển ảnh sang JPG** (như iloveimg.com "Convert to JPG", nhưng chạy trên máy, không tải ảnh lên mạng): thêm ảnh WebP, PNG, GIF, BMP, TIFF, AVIF hoặc HEIC vào danh sách rồi bấm **Chuyển sang JPG**.
+    - Mỗi ảnh có thêm một tệp `.jpg` mới **nằm cạnh ảnh gốc**, cùng tên (ví dụ `anh.webp` → `anh.jpg`). Nếu `anh.jpg` đã có thì tạo `anh-1.jpg`, `anh-2.jpg`... Ảnh gốc **giữ nguyên**, không bị sửa hay xoá, nên không cần sao lưu.
+    - Ảnh JPG mới **không có metadata** (như khi bấm Xoá metadata), nhưng vẫn đúng chiều xoay và đúng màu (giữ hồ sơ màu RGB).
+    - Phần trong suốt (PNG, WebP, GIF) được tô nền **trắng**. Ảnh động (GIF, WebP) chỉ lấy **khung hình đầu tiên**; cột Trạng thái ghi "(khung đầu)".
+    - Tệp đã là JPEG (kể cả JPEG bị đặt đuôi .png) và video, PDF được **bỏ qua** ("– Bỏ qua"). Rê chuột lên một dòng để xem tên tệp JPG vừa tạo hoặc lý do bỏ qua. Bấm **Dừng** để dừng sau ảnh hiện tại. Thẻ kết quả có nút **Mở thư mục**.
+11. **Cập nhật**: khi có bản mới, ứng dụng hỏi **Có bản mới vX.Y.Z** kèm ghi chú. Bấm **Cập nhật ngay** thì ứng dụng tải bộ cài từ trang GitHub này, kiểm tra mã SHA256, cài đè rồi tự mở lại; bấm **Để sau** để bỏ qua. Không bao giờ tự cài khi bạn chưa bấm. Có thể tắt **Tự kiểm tra cập nhật khi mở** hoặc bấm **Kiểm tra cập nhật** ở góc dưới.
+12. **Gỡ cài đặt**: **Settings** → **Apps** → **Installed apps**, tìm **Exif Remover**, bấm **...** → **Uninstall**. Các tệp đã làm sạch và bản sao lưu không bị xoá.
 
 Lưu ý: chỉ thư mục (thêm bằng kéo thả hoặc **Chọn thư mục**) mới được sao lưu; tệp lẻ thì không. Mạng chỉ được dùng để kiểm tra và tải bản cập nhật từ GitHub; tệp của bạn không bao giờ được gửi đi.
 
@@ -42,7 +47,7 @@ Lưu ý: chỉ thư mục (thêm bằng kéo thả hoặc **Chọn thư mục**)
 
 1. Download `ExifRemover-Setup-<version>.exe` from [Releases](https://github.com/thientrile/exif-remover/releases/latest) and run it. It installs for your user only (no admin) and adds a Start menu entry; uninstall from Settings → Apps.
 2. The installer is not code-signed, so Windows SmartScreen will warn "Windows protected your PC": click **More info** → **Run anyway**.
-3. Drop files or folders on the window (or **Chọn tệp** / **Chọn thư mục**, which takes several folders with Ctrl/Shift; every pick adds to the list), keep **Tạo bản sao lưu trước khi xoá** on, press **Xoá metadata**. Each row shows its status and tag count before → after; the result card shows the backup folder and, after a fully successful run, **Xoá bản sao lưu** (to the Recycle Bin). The **Bản sao lưu** footer button lists the backups the app made (recorded in `%APPDATA%\ExifRemover\backups.json`) to delete them. **Xem metadata** shows a file's tags (read-only, searchable). exiftool, ffmpeg and qpdf are bundled.
+3. Drop files or folders on the window (or **Chọn tệp** / **Chọn thư mục**, which takes several folders with Ctrl/Shift; every pick adds to the list), keep **Tạo bản sao lưu trước khi xoá** on, press **Xoá metadata**. Each row shows its status and tag count before → after; the result card shows the backup folder and, after a fully successful run, **Xoá bản sao lưu** (to the Recycle Bin). The **Bản sao lưu** footer button lists the backups the app made (recorded in `%APPDATA%\ExifRemover\backups.json`) to delete them. **Xem metadata** shows a file's tags (read-only, searchable). **Chuyển sang JPG** writes a new metadata-free `name.jpg` (or `name-1.jpg`…) next to each WebP/PNG/GIF/BMP/TIFF/AVIF/HEIC image, offline; originals are untouched, JPEGs are skipped. exiftool, ffmpeg and qpdf are bundled.
 4. **Updates**: the app checks GitHub Releases on start (can be turned off). When you click **Cập nhật ngay** it downloads the new installer from this repository's release, verifies it against the release's `SHA256SUMS.txt`, installs it silently for your user and restarts. **Network use**: only that update check and download; cleaning is fully offline and your files are never uploaded. The request sends only a generic `ExifRemover/<version>` user agent.
 
 ## CLI (Linux / WSL)
@@ -52,6 +57,7 @@ Needs `exiftool`, `ffmpeg` and `qpdf` (`sudo apt install libimage-exiftool-perl 
 ```sh
 exif-remover "C:\path\to\folder"      # backup + clean + verify + summary (WSL maps C:\ to /mnt/c)
 exif-remover --no-backup PHOTO.jpg ~/videos
+exif-remover --to-jpg ~/Downloads/webp   # new metadata-free name.jpg next to each image, originals untouched
 python3 -m unittest discover -s tests   # tests
 ```
 
@@ -66,6 +72,7 @@ The Windows app takes the same arguments: `ExifRemover.exe --no-backup C:\photos
 - Formats: JPEG, PNG, WebP, HEIC, AVIF, GIF, TIFF (`exiftool -all=`, orientation and ICC colour profile kept), MP4/MOV (`ffmpeg -map_metadata -1 -c copy`, no re-encode; data/telemetry tracks dropped), PDF (`exiftool -all:all=` then a full `qpdf` rewrite so the old metadata can't be recovered).
 - Removes EXIF, GPS, XMP, IPTC, comments, thumbnails and C2PA/JUMBF content credentials (e.g. the ChatGPT `caBX` chunk in PNGs).
 - Kept on purpose: orientation and the ICC colour profile (needed for correct colours; it holds only a profile name and copyright, no personal data), like exifremover.com.
+- **To JPG** (`--to-jpg`, GUI **Chuyển sang JPG**): WebP, PNG, GIF, BMP, TIFF, AVIF, HEIC → a new `name.jpg` beside the original (`name-1.jpg`… if taken; the name is reserved with an exclusive create, so nothing is ever overwritten). ffmpeg decodes and encodes (high quality, `-q:v 2`, 4:2:0); EXIF orientation is applied to the pixels, transparency is flattened onto white, animations give their first frame (animated WebP via a small first-frame extractor, since ffmpeg cannot decode those). Then `exiftool -all=` keeps only an RGB ICC profile, the result is verified like a cleaned file and renamed into place. Files that are really JPEG are skipped. Limits: HEIC alpha is not applied (transparent HEIC areas are not white); AVIF/HEIC colour given only as nclx (no ICC) is treated as sRGB.
 - Not removable this way: invisible watermarks embedded in the pixels themselves (C2PA `c2pa.watermarked`, SynthID-style marks).
 
 ## Building

@@ -5,6 +5,7 @@ import sys
 import tempfile
 import time
 import unittest
+from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -144,6 +145,49 @@ class GuiTests(unittest.TestCase):
             self.spin(lambda: closed)
         ask.assert_called_once()
         self.assertIn(gui.STOPPED, self.col("status").values())
+
+    def test_convert_to_jpg_makes_new_files_and_skips_jpegs(self):
+        png = os.path.join(self.d, "p.png")
+        er.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "color=blue:s=16x16", "-frames:v", "1", "-y", png])
+        er.run(["exiftool", "-q", "-overwrite_original", "-XMP:Creator=Bob", png])
+        self.app.add([png])
+        before = {p: Path(p).read_bytes() for p, _ in self.app.rows.values()}
+        self.app.backup.set(True)  # converting never backs up: originals are not touched
+        self.app.jpg_btn.invoke()
+        self.assertEqual(self.app.jpg_btn.cget("text"), "Dừng")
+        self.assertEqual(self.app.run_btn.cget("state"), "disabled")
+        self.spin(lambda: not self.app.running)
+        status = self.col("status")
+        self.assertEqual(status["p.png"], gui.CONVERTED)
+        self.assertEqual({v for k, v in status.items() if k != "p.png"}, {gui.SKIPPED})  # JPEGs, one named .png
+        self.assertEqual({p: Path(p).read_bytes() for p in before}, before)
+        out = os.path.join(self.d, "p.jpg")
+        self.assertEqual(er.file_type(er.read_tags(out)), "JPEG")
+        self.assertEqual(er.leftovers(er.read_tags(out)), [])
+        self.assertIn("1/5", self.app.card_title.cget("text"))
+        self.assertIn("4 tệp bỏ qua", self.app.card_text.cget("text"))
+        self.assertEqual(self.app.run_btn.cget("state"), "normal")
+        self.assertEqual(gui.bk.listed(), [])
+        self.assertFalse([n for n in os.listdir(self.tmp.name) if "_backup-" in n])
+
+    def test_convert_stop_and_errors(self):
+        real = er.convert_file
+        calls = []
+
+        def first_fails_then_stop(path):
+            calls.append(path)
+            self.app.stop.set()  # Stop pressed during the first file
+            raise RuntimeError("bad pixels")
+
+        with mock.patch.object(er, "convert_file", first_fails_then_stop):
+            self.app.start("jpg")
+            self.spin(lambda: not self.app.running)
+        self.assertEqual(len(calls), 1)
+        status = list(self.col("status").values())
+        self.assertEqual((status.count(gui.ERR), status.count(gui.STOPPED)), (1, 3))
+        self.assertIn("Đã dừng: đã chuyển 0/4", self.app.card_title.cget("text"))
+        self.assertEqual(set(self.app.reasons.values()), {"bad pixels"})
+        self.assertIs(er.convert_file, real)
 
     def test_several_folders_add_up_deduped(self):
         a, b, c = (os.path.join(self.tmp.name, n) for n in ("A", "B b", "C"))

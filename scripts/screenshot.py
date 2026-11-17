@@ -1,5 +1,5 @@
 """Windows only: run the GUI on demo files in C:\\demo\\photos and save PNGs of the metadata viewer and the
-finished main window and the backups list into the folder given as argument."""
+finished main window, the backups list and a "Chuyển sang JPG" run into the folder given as argument."""
 import ctypes
 import ctypes.wintypes
 import os
@@ -27,6 +27,8 @@ def make_demo():
     png = os.path.join(DEMO, "nhãn cửa hàng Mẫu Tâm.png")
     er.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "color=green:s=64x64", "-frames:v", "1", "-y", png])
     er.run(["exiftool", "-q", "-overwrite_original", "-Software=Editor", "-Author=Demo", png])
+    er.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "testsrc=s=320x240", "-frames:v", "1", "-c:v", "libwebp", "-y",
+            os.path.join(DEMO, "ảnh bìa sản phẩm.webp")])
     er.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "testsrc=d=1:s=320x240", "-c:v", "mpeg4",
             "-metadata", "title=Holiday", "-metadata", "location=+10.77+106.70/", "-y",
             os.path.join(DEMO, "đầu năm - mẩu chuyện nhỏ.mp4")])
@@ -66,7 +68,11 @@ if __name__ == "__main__":
 
     def show_backups():
         win = app.show_backups()
-        root.after(1500, lambda: (capture(win, "backups.png"), root.destroy()))
+        root.after(1500, lambda: (capture(win, "backups.png"), win.destroy(), root.after(500, to_jpg)))
+
+    def to_jpg():
+        app.on_finish = lambda: root.after(1200, lambda: (capture(root, "jpg.png"), root.destroy()))
+        app.start("jpg")
 
     root.after(3000, show_metadata)
     root.mainloop()

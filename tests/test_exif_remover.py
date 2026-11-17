@@ -312,5 +312,165 @@ class CleanTests(unittest.TestCase):
         self.assertEqual(er.to_windows("/mnt/c/Users/me/a_backup-2026-11-03"), r"C:\Users\me\a_backup-2026-11-03")
 
 
+def pixel(path, x, y):
+    p = subprocess.run([er.tool("ffmpeg") or "ffmpeg", "-v", "error", "-i", path, "-vf", f"format=rgb24,crop=1:1:{x}:{y}",
+                        "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], check=True, capture_output=True)
+    return tuple(p.stdout)
+
+
+def near(rgb, want, tol=40):
+    return all(abs(a - b) <= tol for a, b in zip(rgb, want))
+
+
+def cmyk_tiff(path, w=8, h=8, cmyk=(0, 255, 255, 0)):
+    """Uncompressed CMYK TIFF (Photometric=Separated): ffmpeg's TIFF encoder cannot write one."""
+    data = bytes(cmyk) * (w * h)
+    entries = [(256, 3, 1, w), (257, 3, 1, h), (258, 3, 4, None), (259, 3, 1, 1), (262, 3, 1, 5),
+               (273, 4, 1, None), (277, 3, 1, 4), (278, 3, 1, h), (279, 4, 1, len(data)), (284, 3, 1, 1)]
+    ifd_at = 8
+    extra_at = ifd_at + 2 + 12 * len(entries) + 4
+    data_at = extra_at + 8
+    ifd = struct.pack("<H", len(entries))
+    for tag, typ, count, value in entries:
+        if tag == 258:
+            ifd += struct.pack("<HHII", tag, typ, count, extra_at)
+        elif tag == 273:
+            ifd += struct.pack("<HHII", tag, typ, count, data_at)
+        elif typ == 3:
+            ifd += struct.pack("<HHIHH", tag, typ, count, value, 0)
+        else:
+            ifd += struct.pack("<HHII", tag, typ, count, value)
+    ifd += struct.pack("<I", 0)
+    Path(path).write_bytes(b"II*\x00" + struct.pack("<I", ifd_at) + ifd + struct.pack("<4H", 8, 8, 8, 8) + data)
+
+
+class ConvertTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.d = self.tmp.name
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def p(self, name):
+        return os.path.join(self.d, name)
+
+    def make(self, name, *ffmpeg_args, src="testsrc=s=64x48"):
+        f = self.p(name)
+        try:
+            sh("ffmpeg", "-v", "error", "-f", "lavfi", "-i", src, *ffmpeg_args, f)
+        except subprocess.CalledProcessError as e:
+            self.skipTest(f"this ffmpeg cannot write {name}: {e.stderr.decode(errors='replace')[:200]}")
+        return f
+
+    def convert(self, f):
+        original = Path(f).read_bytes()
+        out, note = er.convert_file(f)
+        self.assertEqual(Path(f).read_bytes(), original)  # the original is never changed
+        self.assertTrue(out.endswith(".jpg"))
+        tags = er.read_tags(out)
+        self.assertEqual(er.file_type(tags), "JPEG")
+        self.assertEqual(er.leftovers(tags), [])
+        self.assertEqual([n for n in os.listdir(self.d) if ".exifclean-" in n], [])
+        return out, note, tags
+
+    def test_each_type_converts_without_metadata(self):
+        cases = [("a.png", ()), ("a.webp", ("-c:v", "libwebp")), ("a.gif", ()), ("a.bmp", ()), ("a.tif", ()),
+                 ("a.avif", ("-c:v", "libaom-av1", "-still-picture", "1"))]
+        for name, args in cases:
+            with self.subTest(name):
+                f = self.make(name, "-frames:v", "1", *args)
+                if name.endswith((".png", ".webp", ".tif", ".gif")):
+                    sh("exiftool", "-q", "-overwrite_original", "-XMP:Creator=Bob", "-XMP:GPSLatitude=48.8", f)
+                    self.assertIn("Creator", names(f))
+                out, note, tags = self.convert(f)
+                self.assertEqual(out, self.p(os.path.splitext(name)[0] + ".jpg"))
+                self.assertEqual(note, "")
+                self.assertIn(("Composite", "ImageSize", "64x48"), tags)
+                self.assertFalse({"Creator", "GPSLatitude"} & names(out))
+                os.remove(out)
+
+    def test_transparent_png_flattened_on_white(self):
+        f = self.make("t.png", "-frames:v", "1",
+                      src="color=blue:s=32x48,format=rgba,pad=64:48:32:0:black@0")  # left half transparent black
+        out, _, _ = self.convert(f)
+        self.assertTrue(near(pixel(out, 8, 24), (255, 255, 255)), pixel(out, 8, 24))
+        self.assertTrue(near(pixel(out, 56, 24), (0, 0, 255)), pixel(out, 56, 24))
+
+    def test_sixteen_bit_and_palette_png(self):
+        for name, fmt in (("deep.png", "rgb48be"), ("pal.png", "pal8")):
+            with self.subTest(name):
+                f = self.make(name, "-frames:v", "1", "-pix_fmt", fmt, src="color=red:s=64x48")
+                out, _, _ = self.convert(f)
+                self.assertTrue(near(pixel(out, 10, 10), (255, 0, 0)), pixel(out, 10, 10))
+
+    def test_cmyk_tiff_colours(self):
+        f = self.p("cmyk.tif")
+        cmyk_tiff(f)
+        out, _, _ = self.convert(f)
+        self.assertTrue(near(pixel(out, 4, 4), (255, 0, 0)), pixel(out, 4, 4))
+
+    def test_animated_gif_and_webp_use_first_frame(self):
+        anim = "color=red:s=64x48:d=1:r=4,drawbox=enable='gte(n,1)':c=blue:t=fill"
+        for name, args in (("an.gif", ()), ("an.webp", ("-c:v", "libwebp_anim", "-loop", "0"))):
+            with self.subTest(name):
+                f = self.make(name, *args, src=anim)
+                out, note, _ = self.convert(f)
+                self.assertIn("first frame", note)
+                self.assertTrue(near(pixel(out, 10, 10), (255, 0, 0)), pixel(out, 10, 10))
+
+    def test_rotated_image_turned_upright(self):
+        # left half red, right half blue; Orientation 6 = rotate 90 CW, so red ends up on top
+        for name in ("rot.png", "rot.webp", "rot.tif"):
+            with self.subTest(name):
+                f = self.make(name, "-frames:v", "1", src="color=red:s=32x48,pad=64:48:0:0:blue")
+                sh("exiftool", "-q", "-overwrite_original", "-Orientation#=6", f)
+                out, _, tags = self.convert(f)
+                self.assertIn(("Composite", "ImageSize", "48x64"), tags)
+                self.assertNotIn("Orientation", names(out))  # pixels are upright, no flag needed
+                self.assertTrue(near(pixel(out, 24, 8), (255, 0, 0)), pixel(out, 24, 8))
+                self.assertTrue(near(pixel(out, 24, 56), (0, 0, 255)), pixel(out, 24, 56))
+
+    def test_name_collision_never_overwrites(self):
+        f = self.make("a.png", "-frames:v", "1")
+        Path(self.p("a.jpg")).write_bytes(b"someone else's")
+        out1, _, _ = self.convert(f)
+        out2, _, _ = self.convert(f)
+        self.assertEqual((out1, out2), (self.p("a-1.jpg"), self.p("a-2.jpg")))
+        self.assertEqual(Path(self.p("a.jpg")).read_bytes(), b"someone else's")
+
+    def test_already_jpeg_skipped_even_if_misnamed(self):
+        for name in ("a.jpg", "jpeg named.png"):
+            f = self.make("real.jpg", "-frames:v", "1")
+            os.rename(f, self.p(name))
+            with self.assertRaisesRegex(er.Skipped, "already a JPEG"):
+                er.convert_file(self.p(name))
+        self.assertEqual(sorted(os.listdir(self.d)), ["a.jpg", "jpeg named.png"])
+
+    def test_misnamed_webp_converted_and_icc_kept(self):
+        icc = self.p("p.icc")
+        Path(icc).write_bytes(icc_profile())
+        f = self.make("w.webp", "-frames:v", "1", "-c:v", "libwebp")
+        sh("exiftool", "-q", "-overwrite_original", f"-ICC_Profile<={icc}", f)
+        os.remove(icc)
+        os.rename(f, self.p("w.png"))
+        out, _, _ = self.convert(self.p("w.png"))
+        self.assertEqual(out, self.p("w.jpg"))
+        self.assertIn("ProfileCopyright", names(out))
+
+    def test_failure_leaves_nothing(self):
+        f = self.make("a.png", "-frames:v", "1")
+        with mock.patch.object(er, "verify", side_effect=RuntimeError("metadata left: x")):
+            with self.assertRaises(RuntimeError):
+                er.convert_file(f)
+        self.assertEqual(os.listdir(self.d), ["a.png"])
+
+    def test_cli_to_jpg(self):
+        self.make("a.png", "-frames:v", "1")
+        self.make("b.jpg", "-frames:v", "1")
+        self.assertEqual(er.main(["--to-jpg", self.d]), 0)
+        self.assertEqual(sorted(os.listdir(self.d)), ["a.jpg", "a.png", "b.jpg"])
+
+
 if __name__ == "__main__":
     unittest.main()
