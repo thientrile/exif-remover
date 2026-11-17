@@ -22,6 +22,7 @@ except ImportError:
 FILETYPES = [("Ảnh, video, PDF", " ".join("*" + e for e in sorted(er.SUPPORTED))), ("Tất cả", "*.*")]
 KIND = {**{e: "Ảnh" for e in er.IMAGE_EXT}, **{e: "Video" for e in er.VIDEO_EXT}, ".pdf": "PDF"}
 WAIT, BUSY, DONE, ERR, STOPPED = "•  Chờ", "…  Đang xoá", "✓  Đã xoá", "✗  Lỗi", "■  Đã dừng"
+BUSY_JPG, CONVERTED, SKIPPED = "…  Đang chuyển", "✓  Đã chuyển", "–  Bỏ qua"
 ACCENT, ACCENT_HOVER, STOP, STOP_HOVER = "#2563eb", "#1d4ed8", "#dc2626", "#b91c1c"
 GREEN, RED, MUTED, AMBER = ("#15803d", "#4ade80"), ("#b91c1c", "#f87171"), ("#6b7280", "#9ca3af"), ("#b45309", "#fbbf24")
 COUNT_BATCH = 8  # files per exiftool call when counting tags: one process start each, and rows fill in steadily
@@ -144,7 +145,8 @@ class App:
         self.q = queue.Queue()  # callables from worker threads, run on the UI thread
         self.rows = {}  # treeview iid -> (path, folder it was added from or None)
         self.reasons = {}  # treeview iid -> why cleaning failed, shown in the row tooltip
-        self.running = False
+        self.notes = {}  # treeview iid -> JPG result (new file, or why skipped), shown in the row tooltip
+        self.running, self.mode, self.outputs = False, "clean", []  # outputs: JPGs written by the current run
         self.stop = threading.Event()
         self.close_after = False
         self.on_finish = None
@@ -204,7 +206,7 @@ class App:
             pass
         title = "Kéo thả ảnh, video, PDF hoặc thư mục vào đây" if root.dnd else "Chọn ảnh, video, PDF hoặc thư mục"
         ctk.CTkLabel(drop, text=title, font=self.font(18, "bold")).pack()
-        ctk.CTkLabel(drop, text="JPG, PNG, WebP, HEIC, AVIF, GIF, TIFF, MP4, MOV, PDF  ·  xử lý ngay trên máy, không tải tệp lên mạng",
+        ctk.CTkLabel(drop, text="JPG, PNG, WebP, HEIC, AVIF, GIF, TIFF, BMP, MP4, MOV, PDF  ·  xử lý ngay trên máy, không tải tệp lên mạng",
                      text_color=MUTED, font=self.font(12)).pack(pady=(2, 0))
         btns = ctk.CTkFrame(drop, fg_color="transparent")
         btns.pack(pady=(12, 16))
@@ -254,6 +256,13 @@ class App:
                                      fg_color=ACCENT, hover_color=ACCENT_HOVER, font=self.font(16, "bold"),
                                      command=lambda: self.request_stop() if self.running else self.start())
         self.run_btn.pack(side="right")
+        self.jpg_btn = ctk.CTkButton(act, text="Chuyển sang JPG", height=44, width=170, corner_radius=8,
+                                     fg_color=("white", "#1f2329"), hover_color=("#eef2f7", "#2a2f37"), border_width=1,
+                                     border_color=("#d1d5db", "#3a3f47"), text_color=("#111827", "#e5e7eb"),
+                                     font=self.font(15, "bold"),
+                                     command=lambda: self.request_stop() if self.running else self.start("jpg"))
+        self.jpg_btn.pack(side="right", padx=(0, 10))
+        Tooltip(self.jpg_btn, "Tạo bản .jpg mới (không metadata) cạnh mỗi ảnh. Ảnh gốc giữ nguyên.")
 
         self.progress = ctk.CTkProgressBar(root, height=8, progress_color=ACCENT)
         self.progress.set(0)
@@ -398,7 +407,8 @@ class App:
             self.tip_iid = iid
             self.row_tip.hide(None)
             path = self.rows.get(iid, ("",))[0]
-            self.row_tip.text = er.to_windows(path) + (f"\nLỗi: {self.reasons[iid]}" if iid in self.reasons else "")
+            self.row_tip.text = er.to_windows(path) + "".join(
+                f"\n{d[iid]}" for d in (self.notes, {k: f"Lỗi: {v}" for k, v in self.reasons.items()}) if iid in d)
             self.row_tip.show(None)
 
     def remove(self):
@@ -407,6 +417,7 @@ class App:
                 self.tree.delete(iid)
                 del self.rows[iid]
                 self.reasons.pop(iid, None)
+                self.notes.pop(iid, None)
             self.tag_rows()
             self.refresh_count()
 
@@ -415,6 +426,7 @@ class App:
             self.tree.delete(*self.rows)
             self.rows.clear()
             self.reasons.clear()
+            self.notes.clear()
             self.card.grid_forget()
             self.refresh_count()
 
@@ -479,20 +491,25 @@ class App:
         return win
 
     # ---------- cleaning ----------
-    def start(self):
+    def start(self, mode="clean"):
+        """mode: "clean" strips metadata in place; "jpg" writes a clean .jpg copy next to each image."""
         if self.running:
             return
         if not self.rows:
             messagebox.showinfo("Exif Remover", "Thêm tệp hoặc thư mục trước.", parent=self.root)
             return
-        missing = [t for t in ("exiftool", "ffmpeg", "qpdf") if not er.tool(t)]
+        missing = [t for t in ("exiftool", "ffmpeg") + (("qpdf",) if mode == "clean" else ()) if not er.tool(t)]
         if missing:
             messagebox.showerror("Exif Remover", "Thiếu công cụ: " + ", ".join(missing), parent=self.root)
             return
-        self.running = True
+        self.running, self.mode = True, mode
         self.stop.clear()
         self.reasons.clear()
-        self.run_btn.configure(text="Dừng", fg_color=STOP, hover_color=STOP_HOVER)
+        self.notes.clear()
+        self.outputs = []
+        btn, other = (self.run_btn, self.jpg_btn) if mode == "clean" else (self.jpg_btn, self.run_btn)
+        btn.configure(text="Dừng", fg_color=STOP, hover_color=STOP_HOVER, text_color="white")
+        other.configure(state="disabled")
         self.card.grid_forget()
         self.progress.set(0)
         self.progress.grid(row=5, column=0, sticky="ew", padx=20, pady=(12, 0))
@@ -501,11 +518,12 @@ class App:
             self.tree.item(iid, tags=())
         self.tag_rows()
         jobs = list(self.rows.items())
-        folders = sorted({r for _, r in self.rows.values() if r}) if self.backup.get() else []
-        self.write(f"--- Bắt đầu: {len(jobs)} tệp ---\n")
-        threading.Thread(target=self.work, args=(jobs, folders), daemon=True).start()
+        # converting never changes the originals, so it needs no backup
+        folders = sorted({r for _, r in self.rows.values() if r}) if self.backup.get() and mode == "clean" else []
+        self.write(f"--- Bắt đầu {'chuyển sang JPG' if mode == 'jpg' else 'xoá metadata'}: {len(jobs)} tệp ---\n")
+        threading.Thread(target=self.work, args=(jobs, folders, mode), daemon=True).start()
 
-    def work(self, jobs, folders):
+    def work(self, jobs, folders, mode="clean"):
         post = self.q.put
         backups = []
         try:
@@ -527,7 +545,11 @@ class App:
             if self.stop.is_set():  # checked between files only: a file is never left half-done
                 post(lambda rest=[j for j, _ in jobs[i:]]: self.mark_stopped(rest))
                 break
-            post(lambda iid=iid: self.tree.set(iid, "status", BUSY))
+            post(lambda iid=iid, s=BUSY_JPG if mode == "jpg" else BUSY: self.tree.set(iid, "status", s))
+            if mode == "jpg":
+                ok += self.convert_one(iid, path)
+                post(lambda v=(i + 1) / len(jobs): self.progress.set(v))
+                continue
             try:
                 b, a = er.clean_file(path)
                 ok += 1
@@ -538,9 +560,29 @@ class App:
             post(lambda v=(i + 1) / len(jobs): self.progress.set(v))
         post(lambda: self.finish(ok, len(jobs), backups, stopped=self.stop.is_set()))
 
+    def convert_one(self, iid, path):
+        """Worker thread: one file to JPG; posts the row result, returns 1 if a JPG was written."""
+        post = self.q.put
+        try:
+            out, note = er.convert_file(path)
+        except er.Skipped as e:
+            why = "đã là JPEG" if "JPEG" in str(e) else "không phải ảnh chuyển được" + str(e)[len("not a convertible image"):]
+            post(lambda line=f"SKIP   {path}: {e}": (self.notes.__setitem__(iid, f"Bỏ qua: {why}"),
+                                                       self.row_done(iid, None, SKIPPED, "skip", line)))
+            return 0
+        except Exception as e:
+            post(lambda msg=str(e): self.row_done(iid, None, ERR, "err", f"FAIL   {path}: {msg}", msg))
+            return 0
+        frame = " (khung đầu)" if note else ""
+        text = f"Đã tạo: {os.path.basename(out)}" + ("\nẢnh động: chỉ lấy khung hình đầu tiên" if note else "")
+        post(lambda: (self.notes.__setitem__(iid, text),
+                      self.row_done(iid, None, CONVERTED + frame, "ok", f"JPG    {path} -> {os.path.basename(out)}"),
+                      self.outputs.append(out)))
+        return 1
+
     def request_stop(self):
         self.stop.set()
-        self.run_btn.configure(state="disabled", text="Đang dừng…")
+        (self.jpg_btn if self.mode == "jpg" else self.run_btn).configure(state="disabled", text="Đang dừng…")
 
     def mark_stopped(self, iids):
         for iid in iids:
@@ -551,7 +593,7 @@ class App:
     def close(self):
         if not self.running:
             self.root.destroy()
-        elif messagebox.askyesno("Exif Remover", "Đang xoá metadata. Dừng sau tệp hiện tại rồi thoát?\n"
+        elif messagebox.askyesno("Exif Remover", "Đang xử lý. Dừng sau tệp hiện tại rồi thoát?\n"
                                  "Các tệp chưa xử lý được giữ nguyên.", parent=self.root):
             if not self.running:  # the run ended while the dialog was open
                 self.root.destroy()
@@ -576,15 +618,32 @@ class App:
             self.root.destroy()
             return
         self.run_btn.configure(state="normal", text="Xoá metadata", fg_color=ACCENT, hover_color=ACCENT_HOVER)
+        self.jpg_btn.configure(state="normal", text="Chuyển sang JPG", fg_color=("white", "#1f2329"),
+                               hover_color=("#eef2f7", "#2a2f37"), text_color=("#111827", "#e5e7eb"))
         self.progress.grid_forget()
+        if self.mode == "jpg":
+            good, summary = self.card_jpg(ok, total, stopped)
+        else:
+            good, summary = self.card_clean(ok, total, backups, fatal, stopped)
+        state = "stopped" if stopped else "good" if good else "bad"
+        self.card.configure(fg_color={"good": ("#f0fdf4", "#0f2a1a"), "bad": ("#fef2f2", "#2a1212"),
+                                      "stopped": ("#fffbeb", "#2a2008")}[state],
+                            border_color={"good": ("#bbf7d0", "#14532d"), "bad": ("#fecaca", "#7f1d1d"),
+                                          "stopped": ("#fde68a", "#78350f")}[state])
+        self.card_title.configure(text_color={"good": GREEN, "bad": RED, "stopped": AMBER}[state])
+        self.card.grid(row=6, column=0, sticky="ew", padx=20, pady=(14, 0))
+        self.write(f"{'OK' if good else 'STOPPED' if stopped else 'FAILED'}: {summary}\n")
+        if self.pending_update:
+            info, self.pending_update = self.pending_update, None
+            self.offer_update(info)
+        if self.on_finish:
+            self.on_finish()
+
+    def card_clean(self, ok, total, backups, fatal, stopped):
         good = not fatal and not stopped and ok == total
-        self.card.configure(fg_color=("#f0fdf4", "#0f2a1a") if good else ("#fef2f2", "#2a1212"),
-                            border_color=("#bbf7d0", "#14532d") if good else ("#fecaca", "#7f1d1d"))
-        if stopped:
-            self.card.configure(fg_color=("#fffbeb", "#2a2008"), border_color=("#fde68a", "#78350f"))
         title = fatal or (f"■  Đã dừng: đã xoá {ok}/{total} tệp" if stopped else
                           f"✓  Đã xoá metadata {ok}/{total} tệp" if good else f"✗  Đã xoá {ok}/{total} tệp")
-        self.card_title.configure(text=title, text_color=AMBER if stopped else GREEN if good else RED)
+        self.card_title.configure(text=title)
         failed = len(self.reasons)
         lines = [] if good or fatal else (
             ([f"{failed} tệp lỗi (rê chuột lên dòng để xem lý do)."] if failed else []) +
@@ -593,7 +652,7 @@ class App:
         self.card_text.configure(text="\n".join(lines))
         self.card_tip.text = self.card_btn_tip.text = "\n".join(backups)
         if backups:
-            self.card_btn.configure(command=lambda: open_folder(backups[0]))
+            self.card_btn.configure(text="Mở thư mục sao lưu", command=lambda: open_folder(backups[0]))
             self.card_btn.grid(row=0, column=1, rowspan=2, padx=(16, 0), pady=12)
             # only after a clean run: if any file failed or the run stopped, the backup is the only good copy
             self.card_del.configure(state="normal" if good else "disabled",
@@ -604,13 +663,32 @@ class App:
         else:
             self.card_btn.grid_forget()
             self.card_del.grid_forget()
-        self.card.grid(row=6, column=0, sticky="ew", padx=20, pady=(14, 0))
-        self.write(f"{'OK' if good else 'STOPPED' if stopped else 'FAILED'}: {ok}/{total} cleaned. Backup: {'; '.join(backups) or 'none'}\n")
-        if self.pending_update:
-            info, self.pending_update = self.pending_update, None
-            self.offer_update(info)
-        if self.on_finish:
-            self.on_finish()
+        return good, f"{ok}/{total} cleaned. Backup: {'; '.join(backups) or 'none'}"
+
+    def card_jpg(self, ok, total, stopped):
+        failed, skipped = len(self.reasons), sum(1 for n in self.notes.values() if n.startswith("Bỏ qua"))
+        good = not stopped and not failed  # skipping a file that already is a JPEG is not a failure
+        self.card_title.configure(text=f"■  Đã dừng: đã chuyển {ok}/{total} tệp sang JPG" if stopped else
+                                  f"{'✓' if good else '✗'}  Đã chuyển {ok}/{total} tệp sang JPG")
+        frames = sum(1 for n in self.notes.values() if "khung hình đầu" in n)
+        lines = ["Ảnh JPG mới nằm cạnh ảnh gốc, không có metadata. Ảnh gốc giữ nguyên."]
+        if skipped:
+            lines.append(f"{skipped} tệp bỏ qua (đã là JPEG hoặc không phải ảnh).")
+        if frames:
+            lines.append(f"{frames} ảnh động: chỉ lấy khung hình đầu tiên.")
+        if failed:
+            lines.append(f"{failed} tệp lỗi (rê chuột lên dòng để xem lý do).")
+        self.card_text.configure(text="\n".join(lines))
+        self.card_tip.text = "\n".join(self.outputs)
+        self.card_del.grid_forget()
+        if self.outputs:
+            first = os.path.dirname(self.outputs[0])
+            self.card_btn.configure(text="Mở thư mục", command=lambda: open_folder(first))
+            self.card_btn_tip.text = er.to_windows(first)
+            self.card_btn.grid(row=0, column=1, rowspan=2, padx=16, pady=12)
+        else:
+            self.card_btn.grid_forget()
+        return good, f"{ok}/{total} converted, {skipped} skipped"
 
     # ---------- backups ----------
     def delete_backups(self, paths, title="Xoá bản sao lưu"):

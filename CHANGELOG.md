@@ -2,6 +2,15 @@
 
 The section for a version is used as its release notes and shown in the in-app update dialog.
 
+## v0.2.5
+
+- Nút mới **Chuyển sang JPG**: đổi ảnh WebP, PNG, GIF, BMP, TIFF, AVIF, HEIC trong danh sách sang JPG, chạy ngay trên máy, không tải ảnh lên mạng.
+  - Tạo tệp `.jpg` mới cạnh ảnh gốc (`anh.jpg`, trùng tên thì `anh-1.jpg`, `anh-2.jpg`...). Ảnh gốc giữ nguyên.
+  - Ảnh JPG mới không có metadata, đúng chiều xoay, đúng màu. Phần trong suốt thành nền trắng. Ảnh động lấy khung hình đầu tiên.
+  - Tệp đã là JPEG (kể cả bị đặt sai đuôi), video và PDF được bỏ qua, có ghi lý do. Nút **Dừng** dùng được như khi xoá metadata.
+- Nhận thêm ảnh BMP (xoá metadata và chuyển sang JPG).
+- Dòng lệnh: `--to-jpg`.
+
 ## v0.2.4
 
 - Nút **Xoá bản sao lưu** trên thẻ kết quả: chuyển bản sao lưu của lần chạy vào Thùng rác (khôi phục được), hỏi lại kèm đường dẫn, số tệp, dung lượng. Chỉ bấm được khi mọi tệp đều xoá thành công.
