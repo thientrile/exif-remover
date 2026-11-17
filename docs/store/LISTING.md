@@ -82,8 +82,8 @@ Please note:
 
 ## Ảnh chụp màn hình / Screenshots
 
-PNG 1920x1080 do CI chụp, nằm trong thư mục [screenshots](screenshots/) (cũng có trong artifact `store-screenshots` của mỗi lần chạy CI). Thứ tự gợi ý: `1-main.png`, `2-metadata.png`, `3-jpg.png`, `4-backups.png`.
-1920x1080 PNGs captured by CI, in [screenshots](screenshots/) (also in the `store-screenshots` artifact of each CI run). Suggested order: `1-main.png`, `2-metadata.png`, `3-jpg.png`, `4-backups.png`.
+PNG 1402x852 (trên mức tối thiểu 1366x768) do CI chụp từ bản Store, nằm trong thư mục [screenshots](screenshots/) (cũng có trong artifact `store-screenshots` của mỗi lần chạy CI). Thứ tự gợi ý: `1-main.png`, `2-metadata.png`, `3-jpg.png`, `4-backups.png`, `5-about.png`.
+1402x852 PNGs (above the 1366x768 minimum) of the Store build, captured by CI, in [screenshots](screenshots/) (also in the `store-screenshots` artifact of each CI run). Suggested order: `1-main.png`, `2-metadata.png`, `3-jpg.png`, `4-backups.png`, `5-about.png`.
 
 Biểu tượng 300x300 / 300x300 tile icon: `msix/Assets/StoreTile300.png` trong artifact `StarVeil-<phiên bản>` của CI.
 

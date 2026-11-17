@@ -10,6 +10,10 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 import exif_remover as er  # noqa: E402
+import updater  # noqa: E402
+
+if len(sys.argv) > 2:  # Store shots show the Store build (no update controls); set before the GUI module reads it
+    updater.is_packaged = lambda: True
 import exif_remover_gui as gui  # noqa: E402
 
 DEMO = r"C:\demo\photos"

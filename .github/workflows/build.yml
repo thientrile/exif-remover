@@ -42,12 +42,14 @@ jobs:
       - name: GUI tests (stop, backup-folder guard, misnamed files, error reasons)
         run: python -m unittest discover -s tests -p test_gui.py -v
 
-      - name: GUI screenshots (demo folder C:\demo\photos; 1920x1080 full-screen ones for the Store)
+      - name: GUI screenshots (demo folder C:\demo\photos; 1400x820 Store-build ones for the Store listing)
         continue-on-error: true
-        timeout-minutes: 4
+        timeout-minutes: 6
         run: |
-          New-Item -ItemType Directory shots, shots\store | Out-Null
-          python scripts/screenshot.py shots shots\store
+          New-Item -ItemType Directory shots, shots\store, $env:RUNNER_TEMP\storefull | Out-Null
+          python scripts/screenshot.py shots
+          Remove-Item -Recurse -Force C:\demo  # converted JPGs and the backup would show up in the second run
+          python scripts/screenshot.py $env:RUNNER_TEMP\storefull shots\store
 
       - uses: actions/upload-artifact@v4
         continue-on-error: true
