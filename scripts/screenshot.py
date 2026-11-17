@@ -1,7 +1,7 @@
 """Windows only: run the GUI on demo files in C:\\demo\\photos and save PNGs of the metadata viewer and the
 finished main window, the backups list, a "Chuyển sang JPG" run and the About dialog into the folder given as argument.
-With a second folder argument it first sets the screen to 1920x1080, maximizes the window and also saves full-screen
-PNGs there for the Microsoft Store listing (it needs at least 1366x768)."""
+With a second folder argument it first sets the screen to 1920x1080, makes the main window 1400x820 and also saves,
+for each shot, the main window area (with any dialog on top) there for the Microsoft Store (it needs >= 1366x768)."""
 import ctypes
 import ctypes.wintypes
 import os
@@ -69,18 +69,21 @@ def grab(left, top, w, h, out):
     print("saved", out)
 
 
+def frame(win):
+    """Visible frame (left, top, width, height) without the invisible resize border/shadow GetWindowRect includes."""
+    r = ctypes.wintypes.RECT()
+    hwnd = ctypes.windll.user32.GetParent(win.winfo_id())
+    ctypes.windll.dwmapi.DwmGetWindowAttribute(hwnd, 9, ctypes.byref(r), ctypes.sizeof(r))
+    return r.left, r.top, r.right - r.left, r.bottom - r.top
+
+
 def capture(win, name):
     win.lift()
     win.attributes("-topmost", True)
     win.update()
-    hwnd = ctypes.windll.user32.GetParent(win.winfo_id())
-    r = ctypes.wintypes.RECT()
-    # Visible frame without the invisible resize border/shadow that GetWindowRect includes.
-    ctypes.windll.dwmapi.DwmGetWindowAttribute(hwnd, 9, ctypes.byref(r), ctypes.sizeof(r))
-    grab(r.left, r.top, r.right - r.left, r.bottom - r.top, os.path.join(OUT, name))
+    grab(*frame(win), os.path.join(OUT, name))
     if STORE:
-        w, h = ctypes.windll.user32.GetSystemMetrics(0), ctypes.windll.user32.GetSystemMetrics(1)
-        grab(0, 0, w, h, os.path.join(STORE, STORE_NAMES[name]))
+        grab(*frame(app.root), os.path.join(STORE, STORE_NAMES[name]))
 
 
 if __name__ == "__main__":
@@ -91,7 +94,7 @@ if __name__ == "__main__":
     app = gui.App([DEMO], demo=True)
     root = app.root
     if STORE:
-        root.state("zoomed")
+        root.geometry("1400x820+0+0")
 
     def show_metadata():
         first = app.tree.get_children()[0]
