@@ -1,4 +1,5 @@
 """Exif Remover window (customtkinter, Vietnamese UI). With arguments it runs the CLI instead."""
+import logging
 import os
 import queue
 import shutil
@@ -6,6 +7,9 @@ import subprocess
 import sys
 import threading
 import tkinter as tk
+import traceback
+import webbrowser
+from logging.handlers import RotatingFileHandler
 from tkinter import filedialog, font as tkfont, messagebox, ttk
 
 import customtkinter as ctk
@@ -25,6 +29,15 @@ WAIT, BUSY, DONE, ERR, STOPPED = "•  Chờ", "…  Đang xoá", "✓  Đã xo�
 BUSY_JPG, CONVERTED, SKIPPED = "…  Đang chuyển", "✓  Đã chuyển", "–  Bỏ qua"
 ACCENT, ACCENT_HOVER, STOP, STOP_HOVER = "#2563eb", "#1d4ed8", "#dc2626", "#b91c1c"
 GREEN, RED, MUTED, AMBER = ("#15803d", "#4ade80"), ("#b91c1c", "#f87171"), ("#6b7280", "#9ca3af"), ("#b45309", "#fbbf24")
+SIGNATURE, OWNER_URL = "Ánh sao & Bầu trời · by @thientrile", "https://github.com/thientrile"
+REPO_URL = f"https://github.com/{updater.REPO}"
+SUPPORT_URL, BUG_URL = REPO_URL + "/issues/new/choose", REPO_URL + "/issues/new?template=bug_report.yml"
+# Policy pages (Microsoft Store follow-up): set a URL and its button appears in "Giới thiệu".
+PRIVACY_URL = TERMS_URL = None
+PRIVACY = ("Mọi xử lý diễn ra trên máy bạn; ứng dụng không tải ảnh lên đâu. "
+           "Chỉ kết nối GitHub để kiểm tra bản cập nhật.")
+LOG_DIR = os.path.join(os.environ.get("LOCALAPPDATA") or os.path.expanduser("~/.local/state"), "ExifRemover", "logs")
+LOG = logging.getLogger("exif_remover")  # paths and error text only, never file contents or metadata values
 COUNT_BATCH = 8  # files per exiftool call when counting tags: one process start each, and rows fill in steadily
 
 
@@ -96,6 +109,26 @@ def pick_folders_win(owner, title, start=None):
         release(folder)
         release(items)
         release(dlg)
+
+
+def setup_log():
+    """Errors go to LOG_DIR/app.log, at most ~3 x 256 KB. A log that cannot be opened never stops the app."""
+    if LOG.handlers:
+        return
+    try:
+        os.makedirs(LOG_DIR, exist_ok=True)
+        h = RotatingFileHandler(os.path.join(LOG_DIR, "app.log"), maxBytes=256_000, backupCount=2, encoding="utf-8")
+    except OSError:
+        return
+    h.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    LOG.addHandler(h)
+    LOG.setLevel(logging.INFO)
+
+
+def doc(name):
+    """LICENSE / THIRD_PARTY_NOTICES.md: the installer puts them next to the exe; in the source tree they are in HERE."""
+    base = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else er.HERE
+    return os.path.join(base, name)
 
 
 def open_folder(path):
@@ -171,6 +204,8 @@ class App:
         root.grid_columnconfigure(0, weight=1)
         self.build()
         root.protocol("WM_DELETE_WINDOW", self.close)
+        root.report_callback_exception = lambda *exc: self.crash(exc)
+        threading.excepthook = lambda a: self.q.put(lambda: self.crash((a.exc_type, a.exc_value, a.exc_traceback)))
         self.add(initial)
         root.after(100, self.pump)
         if not demo and self.settings["check_updates"]:
@@ -283,10 +318,17 @@ class App:
         foot.grid(row=7, column=0, sticky="ew", pady=(12, 0), **pad)
         link = {"fg_color": "transparent", "hover_color": ("#e5e7eb", "#2a2f37"), "height": 26, "corner_radius": 6,
                 "text_color": MUTED, "font": self.font(12)}
+        # Owner's signature, same as the footer of their tool-excel app: own line so 820 px / 150% DPI never crowds it.
+        sig = ctk.CTkLabel(foot, text=SIGNATURE, text_color=MUTED, font=self.font(11), cursor="hand2", height=16)
+        sig.pack(side="bottom", anchor="e")
+        sig.bind("<Button-1>", lambda e: webbrowser.open(OWNER_URL))
+        sig.bind("<Enter>", lambda e: sig.configure(text_color=ctk.ThemeManager.theme["CTkLabel"]["text_color"]))
+        sig.bind("<Leave>", lambda e: sig.configure(text_color=MUTED))
         self.log_btn = ctk.CTkButton(foot, text="▸  Chi tiết", width=90, command=self.toggle_log, **link)
         self.log_btn.pack(side="left")
         ctk.CTkButton(foot, text="Bản sao lưu", width=100, command=self.show_backups, **link).pack(side="left", padx=(8, 0))
-        ctk.CTkLabel(foot, text=f"Phiên bản {er.__version__}", text_color=MUTED, font=self.font(12)).pack(side="right")
+        ctk.CTkButton(foot, text=f"Giới thiệu · v{er.__version__}", width=120, command=self.show_about,
+                      **link).pack(side="right")
         ctk.CTkButton(foot, text="Kiểm tra cập nhật", width=120, command=lambda: self.check_updates(manual=True),
                       **link).pack(side="right", padx=(0, 12))
         self.auto = ctk.BooleanVar(value=self.settings["check_updates"])
@@ -604,6 +646,7 @@ class App:
     def row_done(self, iid, meta, status, tag, line, reason=None):
         if reason:
             self.reasons[iid] = reason
+            LOG.warning("%s", line)
         if self.tree.exists(iid):
             if meta:
                 self.tree.set(iid, "meta", meta)
@@ -822,6 +865,82 @@ class App:
                 break
         self.root.after(100, self.pump)
 
+    # ---------- about, errors ----------
+    def show_about(self):
+        win = ctk.CTkToplevel(self.root)
+        win.title("Giới thiệu")  # no fixed size: it grows when policy buttons appear
+        win.resizable(False, False)
+        win.transient(self.root)
+        try:
+            win.icon = tk.PhotoImage(file=asset("icon.png")).subsample(4)  # 64 px; kept on win so it is not freed
+            tk.Label(win, image=win.icon, bd=0, bg=win._apply_appearance_mode(win.cget("fg_color"))).pack(pady=(20, 6))
+        except tk.TclError:
+            pass
+        ctk.CTkLabel(win, text="Exif Remover", font=self.font(20, "bold")).pack()
+        ctk.CTkLabel(win, text=f"Phiên bản {er.__version__}", text_color=MUTED, font=self.font(12)).pack()
+        sig = ctk.CTkLabel(win, text=SIGNATURE, text_color=ACCENT, font=self.font(13), cursor="hand2")
+        sig.pack(pady=(6, 10))
+        sig.bind("<Button-1>", lambda e: webbrowser.open(OWNER_URL))
+        for text in ("Xoá metadata (EXIF, GPS, XMP, IPTC...) khỏi ảnh, video và PDF, chuyển ảnh sang JPG.",
+                     PRIVACY, "Giấy phép MIT. Các công cụ đi kèm (ExifTool, FFmpeg, qpdf) giữ giấy phép riêng."):
+            ctk.CTkLabel(win, text=text, wraplength=460, justify="center", font=self.font(13)).pack(padx=24, pady=3)
+        grid = ctk.CTkFrame(win, fg_color="transparent")
+        grid.pack(pady=(14, 20))
+        buttons = [("Trang dự án", lambda: webbrowser.open(REPO_URL)),
+                   ("Báo lỗi / góp ý", lambda: webbrowser.open(SUPPORT_URL)),
+                   ("Giấy phép & bên thứ ba", lambda: self.show_licenses(win)),
+                   ("Mở thư mục log", self.open_logs),
+                   ("Kiểm tra cập nhật", lambda: self.check_updates(manual=True))]
+        buttons += [(text, lambda u=url: webbrowser.open(u)) for text, url in
+                    (("Quyền riêng tư", PRIVACY_URL), ("Điều khoản sử dụng", TERMS_URL)) if url]
+        for i, (text, cmd) in enumerate(buttons):
+            self.secondary(grid, text, cmd, 200).grid(row=i // 2, column=i % 2, padx=6, pady=4)
+        win.after(100, win.lift)
+        return win
+
+    def show_licenses(self, parent):
+        parts = []
+        for name in ("LICENSE", "THIRD_PARTY_NOTICES.md"):
+            try:
+                with open(doc(name), encoding="utf-8") as f:
+                    parts.append(f.read())
+            except OSError as e:
+                parts.append(f"{name}: không đọc được ({e})")
+        win = ctk.CTkToplevel(parent)
+        win.title("Giấy phép & bên thứ ba")
+        win.geometry("720x520")
+        win.transient(parent)
+        box = ctk.CTkTextbox(win, wrap="word", font=self.font(12))
+        box.pack(fill="both", expand=True, padx=12, pady=12)
+        box.insert("1.0", ("\n\n" + "─" * 40 + "\n\n").join(parts))
+        box.configure(state="disabled")
+        win.after(100, win.lift)
+        return win
+
+    def open_logs(self):
+        os.makedirs(LOG_DIR, exist_ok=True)
+        open_folder(LOG_DIR)
+
+    def crash(self, exc):
+        """Unhandled error in a callback or worker thread: log it and say so, instead of failing silently."""
+        LOG.error("unhandled error\n%s", "".join(traceback.format_exception(*exc)).rstrip())
+        if getattr(self, "crash_win", None) and self.crash_win.winfo_exists():
+            return  # one dialog at a time; later errors are only logged
+        self.crash_win = win = ctk.CTkToplevel(self.root)
+        win.title("Đã xảy ra lỗi")
+        win.geometry("480x220")
+        win.transient(self.root)
+        ctk.CTkLabel(win, text="Ứng dụng gặp lỗi không mong muốn.", font=self.font(15, "bold")).pack(pady=(20, 6))
+        ctk.CTkLabel(win, text=f"{exc[0].__name__}: {exc[1]}\nChi tiết đã ghi vào {os.path.join(LOG_DIR, 'app.log')}. "
+                     "Bạn có thể gửi báo lỗi kèm vài dòng cuối của tệp log.", wraplength=430,
+                     font=self.font(12)).pack(padx=20)
+        row = ctk.CTkFrame(win, fg_color="transparent")
+        row.pack(pady=16)
+        self.secondary(row, "Mở thư mục log", self.open_logs, 130).pack(side="left", padx=4)
+        self.secondary(row, "Báo lỗi", lambda: webbrowser.open(BUG_URL), 90).pack(side="left", padx=4)
+        self.secondary(row, "Đóng", win.destroy, 70).pack(side="left", padx=4)
+        win.after(100, win.lift)
+
     # ---------- updates ----------
     def save_auto(self):
         self.settings["check_updates"] = self.auto.get()
@@ -895,6 +1014,7 @@ class App:
         threading.Thread(target=work, daemon=True).start()
 
     def update_failed(self, msg):
+        LOG.warning("update failed: %s", msg)
         self.banner.grid_forget()
         self.run_btn.configure(state="normal")
         messagebox.showerror("Cập nhật", f"Không cập nhật được, bạn vẫn dùng bản hiện tại.\n{msg}", parent=self.root)
@@ -913,4 +1033,13 @@ if __name__ == "__main__":
         sys.exit(updater.self_update())
     if len(sys.argv) > 1:
         sys.exit(er.main(sys.argv[1:]))  # CLI mode, also used by the CI smoke test
-    App().root.mainloop()
+    setup_log()
+    LOG.info("start %s", er.__version__)
+    try:
+        app = App()
+    except Exception:
+        LOG.exception("failed to start")
+        messagebox.showerror("Exif Remover", f"Ứng dụng không mở được. Chi tiết trong {os.path.join(LOG_DIR, 'app.log')}\n"
+                             f"Báo lỗi: {BUG_URL}")
+        raise
+    app.root.mainloop()

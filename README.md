@@ -35,6 +35,16 @@ Strips metadata (EXIF, GPS, XMP, IPTC, comments, C2PA content credentials) from 
 11. **Cập nhật**: khi có bản mới, ứng dụng hỏi **Có bản mới vX.Y.Z** kèm ghi chú. Bấm **Cập nhật ngay** thì ứng dụng tải bộ cài từ trang GitHub này, kiểm tra mã SHA256, cài đè rồi tự mở lại; bấm **Để sau** để bỏ qua. Không bao giờ tự cài khi bạn chưa bấm. Có thể tắt **Tự kiểm tra cập nhật khi mở** hoặc bấm **Kiểm tra cập nhật** ở góc dưới.
 12. **Gỡ cài đặt**: **Settings** → **Apps** → **Installed apps**, tìm **Exif Remover**, bấm **...** → **Uninstall**. Các tệp đã làm sạch và bản sao lưu không bị xoá.
 
+13. **Giới thiệu, báo lỗi**: bấm **Giới thiệu · vX.Y.Z** ở góc dưới bên phải để xem phiên bản, giấy phép và các công cụ đi kèm, mở trang dự án, **Báo lỗi / góp ý** hay **Mở thư mục log**. Khi gặp lỗi, ứng dụng ghi vào `%LOCALAPPDATA%\ExifRemover\logs\app.log` (chỉ đường dẫn và nội dung lỗi, không ghi nội dung ảnh hay giá trị metadata) và hiện hộp thoại có nút **Mở thư mục log** và **Báo lỗi**. Khi báo lỗi, dán vài dòng cuối của tệp log vào.
+
+### Quyền riêng tư
+
+Mọi xử lý diễn ra trên máy bạn; ứng dụng không tải ảnh lên đâu. Chỉ kết nối GitHub để kiểm tra và tải bản cập nhật (có thể tắt). Không có quảng cáo, không thu thập dữ liệu sử dụng. Tệp log chỉ nằm trên máy bạn.
+
+### Cảnh báo SmartScreen
+
+Bộ cài chưa được ký số (code signing), nên lần đầu chạy Windows có thể hiện *"Windows protected your PC"*. Đây là cảnh báo cho mọi phần mềm chưa ký, không phải virus. Bấm **More info** rồi **Run anyway**. Muốn chắc chắn tệp đúng là bản phát hành, so mã SHA256 của tệp (`Get-FileHash ExifRemover-Setup-x.y.z.exe`) với tệp `SHA256SUMS.txt` trên trang Releases.
+
 Lưu ý: chỉ thư mục (thêm bằng kéo thả hoặc **Chọn thư mục**) mới được sao lưu; tệp lẻ thì không. Mạng chỉ được dùng để kiểm tra và tải bản cập nhật từ GitHub; tệp của bạn không bao giờ được gửi đi.
 
 <details><summary>Cửa sổ Xem metadata</summary>
@@ -82,3 +92,7 @@ GitHub Actions (`.github/workflows/build.yml`, `windows-latest`) downloads pinne
 ## License
 
 MIT (`LICENSE`). The bundled tools keep their own licenses: see `THIRD_PARTY_NOTICES.md`.
+
+---
+
+Ánh sao & Bầu trời · by [@thientrile](https://github.com/thientrile)

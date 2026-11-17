@@ -1,0 +1,36 @@
+name: Báo lỗi / Bug report
+description: Ứng dụng chạy sai hoặc báo lỗi / Something went wrong
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: "Đừng đính kèm ảnh riêng tư. Chỉ dán đường dẫn và nội dung lỗi. / Do not attach private photos."
+  - type: input
+    id: version
+    attributes:
+      label: Phiên bản ứng dụng / App version
+      description: Góc dưới bên phải, "Giới thiệu · vX.Y.Z"
+      placeholder: v0.2.6
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Phiên bản Windows / Windows version
+      description: Bấm Win+R, gõ winver
+      placeholder: Windows 11 23H2
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: Chuyện gì xảy ra? / What happened?
+      description: Bạn đã bấm gì, mong đợi gì, thấy gì (loại tệp, ví dụ .heic, .mp4)
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Vài dòng cuối của log / Log excerpt
+      description: "Giới thiệu → Mở thư mục log → app.log. Dán khoảng 20 dòng cuối."
+      render: text

@@ -57,6 +57,67 @@ class GuiTests(unittest.TestCase):
     def col(self, col):
         return {os.path.relpath(p, self.d): self.app.tree.set(iid, col) for iid, (p, _) in self.app.rows.items()}
 
+    def test_signature_fits_at_min_size_and_opens_profile(self):
+        root = self.app.root
+        root.geometry("820x600")
+        root.update()
+        sig, stack = None, [root]
+        while stack:
+            w = stack.pop()
+            if isinstance(w, gui.ctk.CTkLabel) and w.cget("text") == gui.SIGNATURE:
+                sig = w
+            stack += w.winfo_children()
+        self.assertIsNotNone(sig)
+        self.assertTrue(sig.winfo_ismapped())
+        right = sig.winfo_rootx() + sig.winfo_width() - root.winfo_rootx()
+        self.assertLessEqual(right, root.winfo_width())
+        with mock.patch.object(gui.webbrowser, "open") as op:
+            sig._label.event_generate("<Button-1>")
+            root.update()
+        op.assert_called_with("https://github.com/thientrile")
+
+    def texts(self, w):
+        out, stack = [], [w]
+        while stack:
+            w = stack.pop()
+            try:
+                out.append(w.cget("text"))
+            except Exception:
+                pass
+            stack += w.winfo_children()
+        return out
+
+    def test_about_shows_identity_links_and_licenses(self):
+        win = self.app.show_about()
+        self.app.root.update()
+        t = self.texts(win)
+        for want in ("Exif Remover", f"Phiên bản {er.__version__}", gui.SIGNATURE, gui.PRIVACY, "Trang dự án",
+                     "Báo lỗi / góp ý", "Giấy phép & bên thứ ba", "Mở thư mục log", "Kiểm tra cập nhật"):
+            self.assertIn(want, t)
+        self.assertNotIn("Quyền riêng tư", t)  # no policy page yet (PRIVACY_URL is None)
+        lic = self.app.show_licenses(win)
+        self.app.root.update()
+        box = next(w for w in lic.winfo_children() if isinstance(w, gui.ctk.CTkTextbox))
+        body = box.get("1.0", "end")
+        self.assertIn("MIT License", body)
+        self.assertIn("ExifTool", body)
+        with mock.patch.object(gui, "PRIVACY_URL", "https://example.org/p"):
+            self.assertIn("Quyền riêng tư", self.texts(self.app.show_about()))
+
+    def test_unhandled_error_is_logged_and_shown(self):
+        log_dir = os.path.join(self.tmp.name, "logs")
+        with mock.patch.object(gui, "LOG_DIR", log_dir):
+            gui.LOG.handlers.clear()
+            gui.setup_log()
+            self.addCleanup(lambda: [gui.LOG.removeHandler(h) or h.close() for h in list(gui.LOG.handlers)])
+            self.app.root.after(0, lambda: 1 / 0)
+            self.spin(lambda: getattr(self.app, "crash_win", None) is not None)
+            gui.threading.Thread(target=lambda: [][1]).start()  # worker thread error: logged, one dialog only
+            self.spin(lambda: "IndexError" in Path(log_dir, "app.log").read_text(encoding="utf-8"))
+        self.assertIn("ZeroDivisionError", Path(log_dir, "app.log").read_text(encoding="utf-8"))
+        self.assertIn("Mở thư mục log", self.texts(self.app.crash_win))
+        self.assertIn("Báo lỗi", self.texts(self.app.crash_win))
+
     def test_list_skips_backups_shows_real_type_and_relative_names(self):
         self.assertEqual(sorted(self.col("name")), ["a.jpg", "b.jpg", "c.jpg", os.path.join("sub", "jpeg named.png")])
         self.assertEqual(sorted(self.col("name").values())[-1], os.path.join("sub", "jpeg named.png"))

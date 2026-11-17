@@ -56,9 +56,10 @@ jobs:
           path: shots/*.png
 
       - name: Package (PyInstaller onedir)
-        run: >
-          pyinstaller --noconfirm --onedir --windowed --name ExifRemover --icon assets/icon.ico
-          --add-data "tools;tools" --add-data "assets;assets"
+        run: |
+          python scripts/version_info.py version_info.txt
+          pyinstaller --noconfirm --onedir --windowed --name ExifRemover --icon assets/icon.ico `
+          --version-file version_info.txt --add-data "tools;tools" --add-data "assets;assets" `
           --collect-data customtkinter --collect-all tkinterdnd2 exif_remover_gui.py
 
       - name: Installer (Inno Setup) and SHA256SUMS.txt
@@ -80,6 +81,9 @@ jobs:
           $exe = "$app\ExifRemover.exe"
           $t = "$app\_internal\tools"
           if (!(Test-Path $exe)) { throw "installer did not create $exe" }
+          $vi = (Get-Item $exe).VersionInfo
+          if ($vi.ProductVersion -ne $env:VERSION -or $vi.LegalCopyright -notmatch 'thientrile') { throw "exe version info: $($vi | Out-String)" }
+          if (!(Test-Path "$app\LICENSE") -or !(Test-Path "$app\THIRD_PARTY_NOTICES.md")) { throw "LICENSE/notices not installed" }
           $d = "$env:RUNNER_TEMP\smoke"
           New-Item -ItemType Directory $d | Out-Null
           & "$t\ffmpeg.exe" -v error -f lavfi -i color=red:s=16x16 -frames:v 1 "$d\a.jpg"
