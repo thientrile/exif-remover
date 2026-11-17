@@ -37,7 +37,7 @@ Trong sản phẩm vừa tạo → **Start your submission**:
 2. **Properties**: danh mục **Photo & video**; Privacy policy URL: `https://thientrile.github.io/exif-remover/PRIVACY.html`; Website: `https://github.com/thientrile/exif-remover`; Support contact: email của bạn hoặc `https://thientrile.github.io/exif-remover/SUPPORT.html`.
 3. **Age ratings**: trả lời bảng hỏi theo `AGE_RATING.md` (kết quả dự kiến 3+).
 4. **Packages**: tải lên `StarVeil-1.0.x.0-x64.msix` (bản build sau bước 3).
-5. **Store listings**: thêm tiếng Việt và tiếng Anh, dán nội dung từ `LISTING.md`; tải ảnh chụp màn hình trong `screenshots/` (PNG 1920x1080); tải biểu tượng 300x300.
+5. **Store listings**: thêm tiếng Việt và tiếng Anh, dán nội dung từ `LISTING.md`; tải ảnh chụp màn hình trong `screenshots/` (PNG 1402x852, bản Store); tải biểu tượng 300x300.
 6. **Submission options**: dán phần "Notes for certification" và "runFullTrust justification" từ `CERTIFICATION_NOTES.md`.
 7. Bấm **Submit to the Store**. Chờ chứng nhận (thường 1–3 ngày làm việc). Nếu bị từ chối, gửi lại email/báo cáo cho dev.
 
