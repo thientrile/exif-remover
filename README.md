@@ -101,6 +101,10 @@ GitHub Actions (`.github/workflows/build.yml`, `windows-latest`) downloads pinne
 
 MIT (`LICENSE`). The bundled tools keep their own licenses: see `THIRD_PARTY_NOTICES.md`.
 
+## Liên hệ / Contact
+
+Báo lỗi, góp ý / Bugs and ideas: [GitHub Issues](https://github.com/thientrile/exif-remover/issues). Liên hệ riêng / Private contact: [Telegram](https://t.me/liguni0202).
+
 ---
 
 Ánh sao & Bầu trời · by [@thientrile](https://github.com/thientrile)

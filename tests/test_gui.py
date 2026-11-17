@@ -87,6 +87,18 @@ class GuiTests(unittest.TestCase):
             stack += w.winfo_children()
         return out
 
+    def click(self, win, text):
+        """Press the button labelled `text` in `win`; return the URL it opened."""
+        stack = [win]
+        while stack:
+            w = stack.pop()
+            if isinstance(w, gui.ctk.CTkButton) and w.cget("text") == text:
+                with mock.patch.object(gui.webbrowser, "open") as op:
+                    w.invoke()
+                return op.call_args.args[0]
+            stack += w.winfo_children()
+        self.fail(f"no button {text!r}")
+
     def test_about_shows_identity_links_and_licenses(self):
         win = self.app.show_about()
         self.app.root.update()
@@ -95,6 +107,7 @@ class GuiTests(unittest.TestCase):
                      "Báo lỗi / góp ý", "Giấy phép & bên thứ ba", "Mở thư mục log", "Kiểm tra cập nhật",
                      "Quyền riêng tư", "Điều khoản sử dụng"):
             self.assertIn(want, t)
+        self.assertEqual(self.click(win, "Liên hệ qua Telegram"), "https://t.me/liguni0202")
         lic = self.app.show_licenses(win)
         self.app.root.update()
         box = next(w for w in lic.winfo_children() if isinstance(w, gui.ctk.CTkTextbox))
@@ -121,6 +134,7 @@ class GuiTests(unittest.TestCase):
         self.assertIn("ZeroDivisionError", Path(log_dir, "app.log").read_text(encoding="utf-8"))
         self.assertIn("Mở thư mục log", self.texts(self.app.crash_win))
         self.assertIn("Báo lỗi", self.texts(self.app.crash_win))
+        self.assertEqual(self.click(self.app.crash_win, "Telegram"), "https://t.me/liguni0202")
         self.app.crash_win.destroy()
 
     def test_list_skips_backups_shows_real_type_and_relative_names(self):

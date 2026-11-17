@@ -28,18 +28,17 @@ Rồi chạy lại CI (hoặc nhờ dev phát hành bản 1.0.1) để có gói 
 Trong `docs/PRIVACY.md`, `docs/TERMS.md`, `docs/SUPPORT.md` (sửa trực tiếp trên GitHub, trang công khai tự cập nhật sau vài phút):
 - Họ tên pháp lý của bạn (PRIVACY mục 2, TERMS mục 1, tiếng Việt và tiếng Anh).
 - Địa chỉ liên hệ, hoặc ghi "không công bố" (PRIVACY mục 2).
-- Email liên hệ riêng tư (PRIVACY mục 2, TERMS mục 12, SUPPORT "Liên hệ riêng").
 - Tỉnh/thành phố nơi bạn cư trú, để xác định toà án (TERMS mục 10).
 
 ## 5. Tạo bản nộp đầu tiên (~1–2 giờ)
 Trong sản phẩm vừa tạo → **Start your submission**:
 1. **Pricing and availability**: Free; thị trường: tất cả hoặc chọn.
-2. **Properties**: danh mục **Photo & video**; Privacy policy URL: `https://thientrile.github.io/exif-remover/PRIVACY.html`; Website: `https://github.com/thientrile/exif-remover`; Support contact: email của bạn hoặc `https://thientrile.github.io/exif-remover/SUPPORT.html`.
+2. **Properties**: danh mục **Photo & video**; Privacy policy URL: `https://thientrile.github.io/exif-remover/PRIVACY.html`; Website: `https://github.com/thientrile/exif-remover`; Support contact: `https://thientrile.github.io/exif-remover/SUPPORT.html` (liên hệ riêng qua Telegram, không dùng email).
 3. **Age ratings**: trả lời bảng hỏi theo `AGE_RATING.md` (kết quả dự kiến 3+).
 4. **Packages**: tải lên `StarVeil-1.0.x.0-x64.msix` (bản build sau bước 3).
 5. **Store listings**: thêm tiếng Việt và tiếng Anh, dán nội dung từ `LISTING.md`; tải ảnh chụp màn hình trong `screenshots/` (PNG 1402x852, bản Store); tải biểu tượng 300x300.
 6. **Submission options**: dán phần "Notes for certification" và "runFullTrust justification" từ `CERTIFICATION_NOTES.md`.
-7. Bấm **Submit to the Store**. Chờ chứng nhận (thường 1–3 ngày làm việc). Nếu bị từ chối, gửi lại email/báo cáo cho dev.
+7. Bấm **Submit to the Store**. Chờ chứng nhận (thường 1–3 ngày làm việc). Nếu bị từ chối, gửi lại báo cáo cho dev.
 
 ## 6. Sau khi lên Store
 - Bản GitHub vẫn chạy song song và tự cập nhật như cũ. Mỗi máy chỉ nên cài một bản.
