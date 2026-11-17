@@ -1,4 +1,4 @@
-"""Exif Remover window (customtkinter, Vietnamese UI). With arguments it runs the CLI instead."""
+"""Tinh Ảnh (StarVeil) window (customtkinter, Vietnamese UI). With arguments it runs the CLI instead."""
 import logging
 import os
 import queue
@@ -32,10 +32,12 @@ GREEN, RED, MUTED, AMBER = ("#15803d", "#4ade80"), ("#b91c1c", "#f87171"), ("#6b
 SIGNATURE, OWNER_URL = "Ánh sao & Bầu trời · by @thientrile", "https://github.com/thientrile"
 REPO_URL = f"https://github.com/{updater.REPO}"
 SUPPORT_URL, BUG_URL = REPO_URL + "/issues/new/choose", REPO_URL + "/issues/new?template=bug_report.yml"
-# Policy pages (Microsoft Store follow-up): set a URL and its button appears in "Giới thiệu".
-PRIVACY_URL = TERMS_URL = None
-PRIVACY = ("Mọi xử lý diễn ra trên máy bạn; ứng dụng không tải ảnh lên đâu. "
-           "Chỉ kết nối GitHub để kiểm tra bản cập nhật.")
+APP, APP_EN, TAGLINE = "Tinh Ảnh", "StarVeil", "Xoá metadata ảnh"  # formerly "Exif Remover"
+PAGES = "https://thientrile.github.io/exif-remover/"  # docs/ on GitHub Pages
+PRIVACY_URL, TERMS_URL = PAGES + "PRIVACY.html", PAGES + "TERMS.html"
+PACKAGED = updater.is_packaged()  # Microsoft Store build: no self-updater, no network at all
+PRIVACY = "Mọi xử lý diễn ra trên máy bạn; ứng dụng không tải ảnh lên đâu. " + (
+    "Bản Microsoft Store không kết nối mạng." if PACKAGED else "Chỉ kết nối GitHub để kiểm tra bản cập nhật.")
 LOG_DIR = os.path.join(os.environ.get("LOCALAPPDATA") or os.path.expanduser("~/.local/state"), "ExifRemover", "logs")
 LOG = logging.getLogger("exif_remover")  # paths and error text only, never file contents or metadata values
 COUNT_BATCH = 8  # files per exiftool call when counting tags: one process start each, and rows fill in steadily
@@ -190,7 +192,7 @@ class App:
         self.root = root = Root()
         App.family = ui_family(root)
         ctk.ThemeManager.theme["CTkFont"]["family"] = App.family
-        root.title("Exif Remover")
+        root.title(f"{APP} · {TAGLINE}")
         root.minsize(820, 600)
         root.geometry("920x680+0+0" if demo else "920x700")  # demo: fits the 1024x768 CI screen
         try:
@@ -329,12 +331,13 @@ class App:
         ctk.CTkButton(foot, text="Bản sao lưu", width=100, command=self.show_backups, **link).pack(side="left", padx=(8, 0))
         ctk.CTkButton(foot, text=f"Giới thiệu · v{er.__version__}", width=120, command=self.show_about,
                       **link).pack(side="right")
-        ctk.CTkButton(foot, text="Kiểm tra cập nhật", width=120, command=lambda: self.check_updates(manual=True),
-                      **link).pack(side="right", padx=(0, 12))
-        self.auto = ctk.BooleanVar(value=self.settings["check_updates"])
-        ctk.CTkCheckBox(foot, text="Tự kiểm tra cập nhật khi mở", variable=self.auto, checkbox_width=16,
-                        checkbox_height=16, corner_radius=4, border_width=1, fg_color=ACCENT, text_color=MUTED,
-                        font=self.font(12), command=self.save_auto).pack(side="right", padx=(0, 8))
+        if not PACKAGED:  # the Store updates the Store build
+            ctk.CTkButton(foot, text="Kiểm tra cập nhật", width=120, command=lambda: self.check_updates(manual=True),
+                          **link).pack(side="right", padx=(0, 12))
+            self.auto = ctk.BooleanVar(value=self.settings["check_updates"])
+            ctk.CTkCheckBox(foot, text="Tự kiểm tra cập nhật khi mở", variable=self.auto, checkbox_width=16,
+                            checkbox_height=16, corner_radius=4, border_width=1, fg_color=ACCENT, text_color=MUTED,
+                            font=self.font(12), command=self.save_auto).pack(side="right", padx=(0, 8))
         mono = "Consolas" if sys.platform == "win32" else "DejaVu Sans Mono"
         self.log = ctk.CTkTextbox(root, height=150, corner_radius=8, font=ctk.CTkFont(family=mono, size=12))
         self.log.configure(state="disabled")
@@ -538,11 +541,11 @@ class App:
         if self.running:
             return
         if not self.rows:
-            messagebox.showinfo("Exif Remover", "Thêm tệp hoặc thư mục trước.", parent=self.root)
+            messagebox.showinfo(APP, "Thêm tệp hoặc thư mục trước.", parent=self.root)
             return
         missing = [t for t in ("exiftool", "ffmpeg") + (("qpdf",) if mode == "clean" else ()) if not er.tool(t)]
         if missing:
-            messagebox.showerror("Exif Remover", "Thiếu công cụ: " + ", ".join(missing), parent=self.root)
+            messagebox.showerror(APP, "Thiếu công cụ: " + ", ".join(missing), parent=self.root)
             return
         self.running, self.mode = True, mode
         self.stop.clear()
@@ -635,7 +638,7 @@ class App:
     def close(self):
         if not self.running:
             self.root.destroy()
-        elif messagebox.askyesno("Exif Remover", "Đang xử lý. Dừng sau tệp hiện tại rồi thoát?\n"
+        elif messagebox.askyesno(APP, "Đang xử lý. Dừng sau tệp hiện tại rồi thoát?\n"
                                  "Các tệp chưa xử lý được giữ nguyên.", parent=self.root):
             if not self.running:  # the run ended while the dialog was open
                 self.root.destroy()
@@ -876,7 +879,8 @@ class App:
             tk.Label(win, image=win.icon, bd=0, bg=win._apply_appearance_mode(win.cget("fg_color"))).pack(pady=(20, 6))
         except tk.TclError:
             pass
-        ctk.CTkLabel(win, text="Exif Remover", font=self.font(20, "bold")).pack()
+        ctk.CTkLabel(win, text=APP, font=self.font(20, "bold")).pack()
+        ctk.CTkLabel(win, text=f"{APP_EN} · {TAGLINE}", font=self.font(13)).pack()
         ctk.CTkLabel(win, text=f"Phiên bản {er.__version__}", text_color=MUTED, font=self.font(12)).pack()
         sig = ctk.CTkLabel(win, text=SIGNATURE, text_color=ACCENT, font=self.font(13), cursor="hand2")
         sig.pack(pady=(6, 10))
@@ -889,8 +893,9 @@ class App:
         buttons = [("Trang dự án", lambda: webbrowser.open(REPO_URL)),
                    ("Báo lỗi / góp ý", lambda: webbrowser.open(SUPPORT_URL)),
                    ("Giấy phép & bên thứ ba", lambda: self.show_licenses(win)),
-                   ("Mở thư mục log", self.open_logs),
-                   ("Kiểm tra cập nhật", lambda: self.check_updates(manual=True))]
+                   ("Mở thư mục log", self.open_logs)]
+        if not PACKAGED:
+            buttons.append(("Kiểm tra cập nhật", lambda: self.check_updates(manual=True)))
         buttons += [(text, lambda u=url: webbrowser.open(u)) for text, url in
                     (("Quyền riêng tư", PRIVACY_URL), ("Điều khoản sử dụng", TERMS_URL)) if url]
         for i, (text, cmd) in enumerate(buttons):
@@ -947,6 +952,8 @@ class App:
         updater.save_settings(self.settings)
 
     def check_updates(self, manual):
+        if PACKAGED:
+            return
         def work():
             try:
                 info = updater.latest()
@@ -969,7 +976,7 @@ class App:
             self.pending_update = info
             return None
         win = ctk.CTkToplevel(self.root)
-        win.title("Cập nhật Exif Remover")
+        win.title(f"Cập nhật {APP}")
         win.geometry("540x400")
         win.resizable(False, False)
         win.configure(fg_color=("#f6f7f9", "#111318"))
@@ -1034,12 +1041,12 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         sys.exit(er.main(sys.argv[1:]))  # CLI mode, also used by the CI smoke test
     setup_log()
-    LOG.info("start %s", er.__version__)
+    LOG.info("start %s%s", er.__version__, " (Store package, updater off)" if PACKAGED else "")
     try:
         app = App()
     except Exception:
         LOG.exception("failed to start")
-        messagebox.showerror("Exif Remover", f"Ứng dụng không mở được. Chi tiết trong {os.path.join(LOG_DIR, 'app.log')}\n"
+        messagebox.showerror(APP, f"Ứng dụng không mở được. Chi tiết trong {os.path.join(LOG_DIR, 'app.log')}\n"
                              f"Báo lỗi: {BUG_URL}")
         raise
     app.root.mainloop()

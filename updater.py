@@ -16,8 +16,23 @@ from exif_remover import __version__
 
 REPO = "thientrile/exif-remover"
 API = f"https://api.github.com/repos/{REPO}/releases/latest"
-UA = {"User-Agent": f"ExifRemover/{__version__}"}
-ASSET_PATH = f"/{REPO}/releases/download/"
+UA = {"User-Agent": f"StarVeil/{__version__}"}
+# The repo may later be renamed to thientrile/starveil (GitHub redirects the API); accept assets from either name.
+# v0.2.x updaters accept only the old name, so the rename must wait until they have updated to 1.0.0+.
+ASSET_PATHS = (f"/{REPO}/releases/download/", "/thientrile/starveil/releases/download/")
+INSTALLER = "StarVeil-Setup-{}.exe"  # v0.2.x look for ExifRemover-Setup-{}.exe: CI uploads that copy too
+
+
+def is_packaged():
+    """True inside the Microsoft Store (MSIX) package: the Store updates the app, so the self-updater stays off."""
+    try:
+        import ctypes
+        n = ctypes.c_uint32(0)
+        return ctypes.windll.kernel32.GetCurrentPackageFullName(ctypes.byref(n), None) != 15700  # NO_PACKAGE
+    except (AttributeError, OSError):  # not Windows
+        return False
+
+
 # Release assets redirect from github.com to GitHub's asset CDN; anything else is refused.
 HOSTS = {"github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com"}
 SETTINGS = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~/.config"), "ExifRemover", "settings.json")
@@ -39,7 +54,7 @@ def check_url(url):
     u = urllib.parse.urlsplit(url)
     if u.scheme != "https" or u.hostname not in HOSTS:
         raise ValueError(f"refusing download from {url}")
-    if u.hostname == "github.com" and not u.path.startswith(ASSET_PATH):
+    if u.hostname == "github.com" and not u.path.startswith(ASSET_PATHS):
         raise ValueError(f"not an asset of {REPO}: {url}")
     return url
 
@@ -60,7 +75,7 @@ def latest(timeout=8):
         rel = json.load(r)
     tag = rel["tag_name"]
     parse_version(tag)
-    name = f"ExifRemover-Setup-{tag.lstrip('v')}.exe"
+    name = INSTALLER.format(tag.lstrip("v"))
     urls = {a["name"]: a["browser_download_url"] for a in rel.get("assets", [])}
     if name not in urls or "SHA256SUMS.txt" not in urls:
         raise ValueError(f"release {tag} lacks {name} or SHA256SUMS.txt")
@@ -90,7 +105,7 @@ def download(info, progress=lambda pct: None, timeout=30):
     name, url = info["installer"]
     with _open(info["sums"], timeout) as r:
         want = sha_for(r.read(65536).decode("utf-8", "replace"), name)
-    path = os.path.join(tempfile.mkdtemp(prefix="exifremover-update-"), name)
+    path = os.path.join(tempfile.mkdtemp(prefix="starveil-update-"), name)
     try:
         with _open(url, timeout) as r, open(path, "wb") as f:
             total, done = int(r.headers.get("Content-Length") or 0), 0
@@ -119,6 +134,8 @@ def run_installer(path, relaunch=True):
 
 def self_update():
     """CLI `--self-update`: install the latest release if newer, no window. Exit code 0 = started or up to date."""
+    if is_packaged():
+        return 0  # Store build: updates come from the Store
     info = latest()
     if not is_newer(info["tag"]):
         return 0

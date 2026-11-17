@@ -1,3 +1,4 @@
+import io
 import os
 import shutil
 import struct
@@ -156,6 +157,16 @@ class CleanTests(unittest.TestCase):
                 er.clean_file(f)
         self.assertEqual(Path(f).read_bytes(), original)
         self.assert_no_temp_left()
+
+    def test_cli_vietnamese_name_with_cp1252_stdout(self):
+        # Redirected stdout on Windows is cp1252: printing the path once failed a file the app had cleaned.
+        f = self.p("Ảnh bìa.png")
+        sh("ffmpeg", "-v", "error", "-f", "lavfi", "-i", "color=blue:s=16x16", "-frames:v", "1", f)
+        insert_after_ihdr(f, png_chunk(b"tEXt", b"Author\x00Bob"))
+        out = io.TextIOWrapper(io.BytesIO(), encoding="cp1252")
+        with mock.patch.object(sys, "stdout", out), mock.patch.object(sys, "stderr", out):
+            self.assertEqual(er.main(["--no-backup", f]), 0)
+        self.assertEqual(er.png_extra_chunks(f), [])
 
     def test_cli_recursive_and_exit_code(self):
         os.makedirs(self.p("sub"))
@@ -389,6 +400,18 @@ class ConvertTests(unittest.TestCase):
                 self.assertIn(("Composite", "ImageSize", "64x48"), tags)
                 self.assertFalse({"Creator", "GPSLatitude"} & names(out))
                 os.remove(out)
+
+    def test_vietnamese_folder_and_name(self):
+        f = self.make("a.png", "-frames:v", "1")
+        sh("exiftool", "-q", "-overwrite_original", "-XMP:Creator=Bob", f)  # fixture under an ASCII name, then renamed
+        os.mkdir(self.p("Thư mục ảnh"))
+        u = self.p(os.path.join("Thư mục ảnh", "Ảnh bìa.png"))
+        os.rename(f, u)
+        out, _ = er.convert_file(u)
+        self.assertEqual(out, self.p(os.path.join("Thư mục ảnh", "Ảnh bìa.jpg")))
+        self.assertEqual(er.leftovers(er.read_tags(out)), [])
+        before, after = er.clean_file(out)  # and clean the result in place
+        self.assertGreaterEqual(before, after)
 
     def test_transparent_png_flattened_on_white(self):
         f = self.make("t.png", "-frames:v", "1",
